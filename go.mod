@@ -2,7 +2,7 @@ module github.com/libatomic/api
 
 go 1.14
 
-replace github.com/libatomic/oauth => ../oauth
+// replace github.com/libatomic/oauth => ../oauth
 
 require (
 	github.com/go-openapi/runtime v0.19.20
