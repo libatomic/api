@@ -24,14 +24,17 @@ import (
 type (
 	// Server is an http server that provides basic REST funtionality
 	Server struct {
-		auth      oauth.Authorizer
-		log       *logrus.Logger
-		router    *mux.Router
-		apiRouter *mux.Router
-		addr      string
-		srv       *http.Server
-		lock      sync.Mutex
-		basePath  string
+		auth       oauth.Authorizer
+		log        *logrus.Logger
+		router     *mux.Router
+		apiRouter  *mux.Router
+		addr       string
+		srv        *http.Server
+		lock       sync.Mutex
+		basePath   string
+		name       string
+		version    string
+		versioning bool
 	}
 
 	// Parameters interface handles binding requests
@@ -50,21 +53,30 @@ type (
 // NewServer creates a new server object
 func NewServer(opts ...Option) *Server {
 	const (
-		defaultAddr = "127.0.0.1:9000"
-		basePath    = "/api"
+		defaultAddr     = "127.0.0.1:9000"
+		defaultBasePath = "/api"
+		defaultName     = "Atomic"
+		defaultVersion  = "1.0.0"
 	)
 
 	s := &Server{
-		log:    logrus.StandardLogger(),
-		router: mux.NewRouter(),
-		addr:   defaultAddr,
+		log:        logrus.StandardLogger(),
+		router:     mux.NewRouter(),
+		addr:       defaultAddr,
+		name:       defaultName,
+		version:    defaultVersion,
+		versioning: true,
 	}
 
 	for _, opt := range opts {
 		opt(s)
 	}
 
-	s.apiRouter = s.router.PathPrefix(basePath).Subrouter()
+	s.apiRouter = s.router.PathPrefix(defaultBasePath).Subrouter()
+
+	if s.versioning {
+		s.apiRouter.Use(s.versionMiddleware())
+	}
 
 	return s
 }
@@ -220,5 +232,23 @@ func WithAuthorizer(auth oauth.Authorizer) Option {
 func WithBasepath(base string) Option {
 	return func(s *Server) {
 		s.basePath = base
+	}
+}
+
+// WithVersioning enables or disables the versioning middleware
+func WithVersioning(enabled bool, version ...string) Option {
+	return func(s *Server) {
+		s.versioning = enabled
+
+		if enabled && len(version) > 0 {
+			s.version = version[0]
+		}
+	}
+}
+
+// WithName specifies the server name
+func WithName(name string) Option {
+	return func(s *Server) {
+		s.name = name
 	}
 }
