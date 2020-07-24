@@ -19,6 +19,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/libatomic/oauth/pkg/oauth"
 	"github.com/sirupsen/logrus"
+	"github.com/urfave/negroni"
 )
 
 type (
@@ -54,7 +55,7 @@ type (
 func NewServer(opts ...Option) *Server {
 	const (
 		defaultAddr     = "127.0.0.1:9000"
-		defaultBasePath = "/api"
+		defaultBasePath = "/api/{version}"
 		defaultName     = "Atomic"
 		defaultVersion  = "1.0.0"
 	)
@@ -66,17 +67,21 @@ func NewServer(opts ...Option) *Server {
 		name:       defaultName,
 		version:    defaultVersion,
 		versioning: true,
+		basePath:   defaultBasePath,
 	}
 
 	for _, opt := range opts {
 		opt(s)
 	}
 
-	s.apiRouter = s.router.PathPrefix(defaultBasePath).Subrouter()
+	s.apiRouter = s.router.PathPrefix(s.basePath).Subrouter()
 
 	if s.versioning {
 		s.apiRouter.Use(s.versionMiddleware())
 	}
+
+	n := negroni.Classic()
+	n.UseHandler(s.apiRouter)
 
 	return s
 }
@@ -151,10 +156,12 @@ func (s *Server) AddRoute(path string, method string, params Parameters, h Handl
 			}
 		}
 
-		if err := params.BindRequest(r); err != nil {
-			s.log.Errorln(err)
-			s.WriteError(w, http.StatusBadRequest, err)
-			return
+		if params != nil {
+			if err := params.BindRequest(r); err != nil {
+				s.log.Errorln(err)
+				s.WriteError(w, http.StatusBadRequest, err)
+				return
+			}
 		}
 
 		resp := h(params, ctx)

@@ -11,4 +11,5 @@ require (
 	github.com/gorilla/mux v1.7.4
 	github.com/libatomic/oauth v1.0.0-alpha.16
 	github.com/sirupsen/logrus v1.6.0
+	github.com/urfave/negroni v1.0.0
 )

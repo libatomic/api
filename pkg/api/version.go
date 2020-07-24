@@ -23,7 +23,7 @@ type key int
 const verKey key = 0
 
 func (s *Server) versionMiddleware() func(http.Handler) http.Handler {
-	apiVer, _ := semver.Make(s.version)
+	apiVer, _ := semver.ParseTolerant(s.version)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
