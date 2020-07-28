@@ -39,10 +39,14 @@ type (
 )
 
 // NewResponse returns a response with defaults
-func NewResponse(payload interface{}) *Response {
+func NewResponse(payload ...interface{}) *Response {
+	var p interface{}
+	if len(payload) > 0 {
+		p = payload
+	}
 	return &Response{
 		status:  http.StatusOK,
-		payload: payload,
+		payload: p,
 		writer:  WriteJSON,
 	}
 }
@@ -71,6 +75,10 @@ func (r *Response) Payload() interface{} {
 
 // Write writes the response to the writer
 func (r *Response) Write(w http.ResponseWriter) error {
+	if r.payload == nil {
+		w.WriteHeader(r.status)
+		return nil
+	}
 	return r.writer(w, r.status, r.payload)
 }
 

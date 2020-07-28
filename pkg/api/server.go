@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"reflect"
 	"sync"
 
 	"github.com/go-openapi/runtime"
@@ -42,9 +43,6 @@ type (
 	Parameters interface {
 		BindRequest(r *http.Request, c ...runtime.Consumer) error
 	}
-
-	// Handler is a simple route handler function
-	Handler func(params interface{}, ctx oauth.Context) Responder
 
 	// Option provides the server options, these will override th defaults and any atomic
 	// instance values.
@@ -138,7 +136,7 @@ func (s *Server) Router() *mux.Router {
 }
 
 // AddRoute adds a route in the clear
-func (s *Server) AddRoute(path string, method string, params Parameters, h Handler, scope ...[]string) {
+func (s *Server) AddRoute(path string, method string, params Parameters, handler interface{}, scope ...[]string) {
 	s.apiRouter.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		var err error
 		var ctx oauth.Context
@@ -157,6 +155,12 @@ func (s *Server) AddRoute(path string, method string, params Parameters, h Handl
 		}
 
 		if params != nil {
+			pt := reflect.TypeOf(params)
+			if pt.Kind() == reflect.Ptr {
+				pt = pt.Elem()
+			}
+			params = reflect.New(pt).Interface().(Parameters)
+
 			if err := params.BindRequest(r); err != nil {
 				s.log.Errorln(err)
 				s.WriteError(w, http.StatusBadRequest, err)
@@ -164,7 +168,12 @@ func (s *Server) AddRoute(path string, method string, params Parameters, h Handl
 			}
 		}
 
-		resp := h(params, ctx)
+		fn := reflect.ValueOf(handler)
+		args := []reflect.Value{reflect.ValueOf(params), reflect.ValueOf(ctx)}
+
+		rval := fn.Call(args)
+
+		resp := rval[0].Interface().(Responder)
 
 		if err := resp.Write(w); err != nil {
 			s.log.Errorln(err)
