@@ -136,7 +136,7 @@ func (s *Server) Router() *mux.Router {
 }
 
 // AddRoute adds a route in the clear
-func (s *Server) AddRoute(path string, method string, params Parameters, handler interface{}, scope ...[]string) {
+func (s *Server) AddRoute(path string, method string, params Parameters, handler interface{}, scope ...oauth.Permissions) {
 	s.apiRouter.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		var err error
 		var ctx oauth.Context
@@ -152,6 +152,11 @@ func (s *Server) AddRoute(path string, method string, params Parameters, handler
 				s.WriteError(w, http.StatusBadRequest, err)
 				return
 			}
+		}
+
+		if h, ok := handler.(func(w http.ResponseWriter, r *http.Request)); ok {
+			h(w, r)
+			return
 		}
 
 		if params != nil {
