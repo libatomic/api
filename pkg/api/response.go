@@ -42,7 +42,7 @@ type (
 func NewResponse(payload ...interface{}) *Response {
 	var p interface{}
 	if len(payload) > 0 {
-		p = payload
+		p = payload[0]
 	}
 	return &Response{
 		status:  http.StatusOK,
