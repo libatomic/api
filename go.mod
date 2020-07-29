@@ -9,7 +9,7 @@ require (
 	github.com/go-openapi/runtime v0.19.20
 	github.com/gorilla/context v1.1.1
 	github.com/gorilla/mux v1.7.4
-	github.com/libatomic/oauth v1.0.0-alpha.25
+	github.com/libatomic/oauth v1.0.0-alpha.26
 	github.com/sirupsen/logrus v1.6.0
 	github.com/urfave/negroni v1.0.0
 )
