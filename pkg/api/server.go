@@ -159,6 +159,14 @@ func (s *Server) AddRoute(path string, method string, params Parameters, handler
 			return
 		}
 
+		var pv, cv reflect.Value
+
+		if ctx != nil {
+			cv = reflect.ValueOf(ctx)
+		} else {
+			cv = reflect.Zero(reflect.TypeOf((*oauth.Context)(nil)).Elem())
+		}
+
 		if params != nil {
 			pt := reflect.TypeOf(params)
 			if pt.Kind() == reflect.Ptr {
@@ -171,10 +179,14 @@ func (s *Server) AddRoute(path string, method string, params Parameters, handler
 				s.WriteError(w, http.StatusBadRequest, err)
 				return
 			}
+
+			pv = reflect.ValueOf(params)
+		} else {
+			pv = reflect.Zero(reflect.TypeOf((*interface{})(nil)).Elem())
 		}
 
 		fn := reflect.ValueOf(handler)
-		args := []reflect.Value{reflect.ValueOf(params), reflect.ValueOf(ctx)}
+		args := []reflect.Value{pv, cv}
 
 		rval := fn.Call(args)
 
