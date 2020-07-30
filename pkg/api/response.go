@@ -28,13 +28,14 @@ type (
 	}
 
 	// WriterFunc is a response writer
-	WriterFunc func(w http.ResponseWriter, status int, payload interface{}) error
+	WriterFunc func(w http.ResponseWriter, status int, payload interface{}, headers ...http.Header) error
 
 	// Response is the common response type
 	Response struct {
 		status  int
 		payload interface{}
 		writer  WriterFunc
+		header  http.Header
 	}
 )
 
@@ -54,6 +55,12 @@ func NewResponse(payload ...interface{}) *Response {
 // WithStatus sets the status
 func (r *Response) WithStatus(status int) *Response {
 	r.status = status
+	return r
+}
+
+// WithHeader adds headers to the request
+func (r *Response) WithHeader(key string, value string) *Response {
+	r.header.Add(key, value)
 	return r
 }
 
@@ -83,7 +90,15 @@ func (r *Response) Write(w http.ResponseWriter) error {
 }
 
 // WriteJSON writes json objects
-func WriteJSON(w http.ResponseWriter, status int, payload interface{}) error {
+func WriteJSON(w http.ResponseWriter, status int, payload interface{}, headers ...http.Header) error {
+	if len(headers) > 0 {
+		for key, vals := range headers[0] {
+			for _, val := range vals {
+				w.Header().Add(key, val)
+			}
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 
@@ -94,11 +109,46 @@ func WriteJSON(w http.ResponseWriter, status int, payload interface{}) error {
 }
 
 // WriteXML writes an  object out as XML
-func WriteXML(w http.ResponseWriter, status int, payload interface{}) error {
+func WriteXML(w http.ResponseWriter, status int, payload interface{}, headers ...http.Header) error {
+	if len(headers) > 0 {
+		for key, vals := range headers[0] {
+			for _, val := range vals {
+				w.Header().Add(key, val)
+			}
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/xml")
+
 	w.WriteHeader(status)
 
 	enc := xml.NewEncoder(w)
 
 	return enc.Encode(payload)
+}
+
+// Write writes the raw payload out expeting it to be bytes
+func Write(w http.ResponseWriter, status int, payload interface{}, headers ...http.Header) error {
+	if len(headers) > 0 {
+		for key, vals := range headers[0] {
+			for _, val := range vals {
+				w.Header().Add(key, val)
+			}
+		}
+	}
+
+	w.WriteHeader(status)
+
+	switch data := payload.(type) {
+	case []byte:
+		if _, err := w.Write(data); err != nil {
+			return err
+		}
+	case string:
+		if _, err := w.Write([]byte(data)); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
