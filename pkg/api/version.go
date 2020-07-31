@@ -53,7 +53,7 @@ func (s *Server) versionMiddleware() func(http.Handler) http.Handler {
 
 			context.Set(r, verKey, ver)
 
-			w.Header().Set("Server", fmt.Sprintf("%s/%s", s.name, s.version))
+			w.Header().Set("Server", fmt.Sprintf("%s/%s", s.name, s.serverVersion))
 
 			next.ServeHTTP(w, r)
 		})

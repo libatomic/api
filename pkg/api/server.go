@@ -26,17 +26,18 @@ import (
 type (
 	// Server is an http server that provides basic REST funtionality
 	Server struct {
-		auth       oauth.Authorizer
-		log        *logrus.Logger
-		router     *mux.Router
-		apiRouter  *mux.Router
-		addr       string
-		srv        *http.Server
-		lock       sync.Mutex
-		basePath   string
-		name       string
-		version    string
-		versioning bool
+		auth          oauth.Authorizer
+		log           *logrus.Logger
+		router        *mux.Router
+		apiRouter     *mux.Router
+		addr          string
+		srv           *http.Server
+		lock          sync.Mutex
+		basePath      string
+		name          string
+		version       string
+		serverVersion string
+		versioning    bool
 	}
 
 	// Parameters interface handles binding requests
@@ -64,7 +65,7 @@ func NewServer(opts ...Option) *Server {
 		addr:       defaultAddr,
 		name:       defaultName,
 		version:    defaultVersion,
-		versioning: true,
+		versioning: false,
 		basePath:   defaultBasePath,
 	}
 
@@ -268,13 +269,17 @@ func WithBasepath(base string) Option {
 	}
 }
 
-// WithVersioning enables or disables the versioning middleware
-func WithVersioning(enabled bool, version ...string) Option {
+// WithVersioning enables versioning that will enforce a versioned path
+// and optionally set the Server header to the serverVersion
+func WithVersioning(version string, serverVersion ...string) Option {
 	return func(s *Server) {
-		s.versioning = enabled
+		s.versioning = true
+		s.version = version
 
-		if enabled && len(version) > 0 {
-			s.version = version[0]
+		if len(serverVersion) > 0 {
+			s.serverVersion = serverVersion[0]
+		} else {
+			s.serverVersion = version
 		}
 	}
 }
