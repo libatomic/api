@@ -49,6 +49,7 @@ func NewResponse(payload ...interface{}) *Response {
 		status:  http.StatusOK,
 		payload: p,
 		writer:  WriteJSON,
+		header:  make(http.Header),
 	}
 }
 
