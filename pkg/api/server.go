@@ -16,10 +16,10 @@ import (
 	"reflect"
 	"sync"
 
+	"github.com/apex/log"
 	"github.com/go-openapi/runtime"
 	"github.com/gorilla/mux"
 	"github.com/libatomic/oauth/pkg/oauth"
-	"github.com/sirupsen/logrus"
 	"github.com/urfave/negroni"
 )
 
@@ -27,7 +27,7 @@ type (
 	// Server is an http server that provides basic REST funtionality
 	Server struct {
 		auth          oauth.Authorizer
-		log           *logrus.Logger
+		log           log.Interface
 		router        *mux.Router
 		apiRouter     *mux.Router
 		addr          string
@@ -60,7 +60,7 @@ func NewServer(opts ...Option) *Server {
 	)
 
 	s := &Server{
-		log:        logrus.StandardLogger(),
+		log:        log.Log,
 		router:     mux.NewRouter(),
 		addr:       defaultAddr,
 		name:       defaultName,
@@ -229,7 +229,7 @@ func (s *Server) WriteError(w http.ResponseWriter, status int, err error) {
 }
 
 // WithLogger specifies a new logger
-func WithLogger(logger *logrus.Logger) Option {
+func WithLogger(logger log.Interface) Option {
 	return func(s *Server) {
 		if logger != nil {
 			s.log = logger
