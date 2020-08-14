@@ -181,8 +181,6 @@ func (s *Server) AddRoute(path string, method string, params Parameters, handler
 
 		if ctx != nil {
 			cv = reflect.ValueOf(ctx)
-		} else {
-			cv = reflect.Zero(reflect.TypeOf((*interface{})(nil)).Elem())
 		}
 
 		if params != nil {
@@ -210,6 +208,10 @@ func (s *Server) AddRoute(path string, method string, params Parameters, handler
 			args = append(args, pv)
 		}
 		if fn.Type().NumIn() == 2 {
+			if !cv.IsValid() {
+				cv = reflect.Zero(fn.Type().In(1))
+			}
+
 			args = append(args, cv)
 		}
 
