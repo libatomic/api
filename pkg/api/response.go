@@ -106,6 +106,13 @@ func (r *Response) Payload() interface{} {
 // Write writes the response to the writer
 func (r *Response) Write(w http.ResponseWriter) error {
 	if r.payload == nil {
+		if len(r.header) > 0 {
+			for key, vals := range r.header {
+				for _, val := range vals {
+					w.Header().Add(key, val)
+				}
+			}
+		}
 		w.WriteHeader(r.status)
 		return nil
 	}
