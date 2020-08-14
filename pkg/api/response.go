@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"net/http"
+	"net/url"
 )
 
 type (
@@ -62,6 +63,27 @@ func (r *Response) WithStatus(status int) *Response {
 // WithHeader adds headers to the request
 func (r *Response) WithHeader(key string, value string) *Response {
 	r.header.Add(key, value)
+	return r
+}
+
+// Redirect will set the proper redirect headers and http.StatusFound
+func Redirect(u *url.URL, args ...map[string]string) *Response {
+	r := NewResponse()
+
+	q := u.Query()
+
+	for _, a := range args {
+		for k, v := range a {
+			q.Set(k, v)
+		}
+	}
+
+	u.RawQuery = q.Encode()
+
+	r.header.Set("Location", u.String())
+
+	r.status = http.StatusFound
+
 	return r
 }
 

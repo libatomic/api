@@ -34,3 +34,13 @@ func Errorf(f string, args ...interface{}) *Response {
 
 	return NewResponse(p).WithStatus(http.StatusInternalServerError)
 }
+
+// StatusError sets the status and error message in one go
+func StatusError(status int, e error) *Response {
+	return Error(e).WithStatus(status)
+}
+
+// StatusErrorf sets the status and error message in one go
+func StatusErrorf(status int, f string, args ...interface{}) *Response {
+	return Errorf(f, args...).WithStatus(status)
+}

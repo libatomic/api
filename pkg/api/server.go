@@ -19,14 +19,25 @@ import (
 	"github.com/apex/log"
 	"github.com/go-openapi/runtime"
 	"github.com/gorilla/mux"
-	"github.com/libatomic/oauth/pkg/oauth"
-	"github.com/urfave/negroni"
 )
 
 type (
+	// Authorizer performs an autorization and returns a context or error on failure
+	Authorizer func(r *http.Request) (interface{}, error)
+
+	// BasicContext is provided by the basic authorizer
+	BasicContext interface {
+		Username() string
+		Permissions() []string
+	}
+
+	basicContext struct {
+		username    string
+		permissions []string
+	}
+
 	// Server is an http server that provides basic REST funtionality
 	Server struct {
-		auth          oauth.Authorizer
 		log           log.Interface
 		router        *mux.Router
 		apiRouter     *mux.Router
@@ -42,7 +53,7 @@ type (
 
 	// Parameters interface handles binding requests
 	Parameters interface {
-		BindRequest(r *http.Request, c ...runtime.Consumer) error
+		BindRequestW(w http.ResponseWriter, r *http.Request, c ...runtime.Consumer) error
 	}
 
 	// Option provides the server options, these will override th defaults and any atomic
@@ -78,9 +89,6 @@ func NewServer(opts ...Option) *Server {
 	if s.versioning {
 		s.apiRouter.Use(s.versionMiddleware())
 	}
-
-	n := negroni.Classic()
-	n.UseHandler(s.apiRouter)
 
 	return s
 }
@@ -137,26 +145,35 @@ func (s *Server) Router() *mux.Router {
 }
 
 // AddRoute adds a route in the clear
-func (s *Server) AddRoute(path string, method string, params Parameters, handler interface{}, scope ...oauth.Permissions) {
+func (s *Server) AddRoute(path string, method string, params Parameters, handler interface{}, auth ...Authorizer) {
 	s.apiRouter.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		var err error
-		var ctx oauth.Context
+		var ctx interface{}
+		var resp interface{}
 
-		if s.auth != nil && len(scope) > 0 {
-			ctx, err = s.auth.AuthorizeRequest(r, scope...)
+		if len(auth) > 0 {
+			ctx, err = auth[0](r)
 			if err != nil {
-				if err == oauth.ErrAccessDenied {
-					s.WriteError(w, http.StatusUnauthorized, err)
-					return
-				}
-				s.log.Errorln(err)
-				s.WriteError(w, http.StatusBadRequest, err)
+				s.log.Error(err.Error())
+				s.WriteError(w, http.StatusUnauthorized, err)
 				return
 			}
 		}
 
-		if h, ok := handler.(func(w http.ResponseWriter, r *http.Request)); ok {
-			h(w, r)
+		defer func() {
+			switch r := resp.(type) {
+			case Responder:
+				if err := r.Write(w); err != nil {
+					s.log.Error(err.Error())
+					s.WriteError(w, http.StatusInternalServerError, err)
+				}
+			case error:
+				s.WriteError(w, http.StatusInternalServerError, err)
+			}
+		}()
+
+		if h, ok := handler.(func(http.ResponseWriter, *http.Request, interface{}) Responder); ok {
+			resp = h(w, r, ctx)
 			return
 		}
 
@@ -165,7 +182,7 @@ func (s *Server) AddRoute(path string, method string, params Parameters, handler
 		if ctx != nil {
 			cv = reflect.ValueOf(ctx)
 		} else {
-			cv = reflect.Zero(reflect.TypeOf((*oauth.Context)(nil)).Elem())
+			cv = reflect.Zero(reflect.TypeOf((*interface{})(nil)).Elem())
 		}
 
 		if params != nil {
@@ -175,8 +192,8 @@ func (s *Server) AddRoute(path string, method string, params Parameters, handler
 			}
 			params = reflect.New(pt).Interface().(Parameters)
 
-			if err := params.BindRequest(r); err != nil {
-				s.log.Errorln(err)
+			if err := params.BindRequestW(w, r); err != nil {
+				s.log.Error(err.Error())
 				s.WriteError(w, http.StatusBadRequest, err)
 				return
 			}
@@ -187,16 +204,21 @@ func (s *Server) AddRoute(path string, method string, params Parameters, handler
 		}
 
 		fn := reflect.ValueOf(handler)
-		args := []reflect.Value{pv, cv}
+		args := []reflect.Value{}
+
+		if fn.Type().NumIn() > 0 {
+			args = append(args, pv)
+		}
+		if fn.Type().NumIn() == 2 {
+			args = append(args, cv)
+		}
 
 		rval := fn.Call(args)
 
-		resp := rval[0].Interface().(Responder)
-
-		if err := resp.Write(w); err != nil {
-			s.log.Errorln(err)
-			s.WriteError(w, http.StatusInternalServerError, err)
+		if len(rval) > 0 {
+			resp = rval[0].Interface()
 		}
+
 	}).Methods(method)
 }
 
@@ -213,7 +235,7 @@ func (s *Server) WriteJSON(w http.ResponseWriter, status int, v interface{}, pre
 	}
 
 	if err := enc.Encode(v); err != nil {
-		s.log.Errorln(err)
+		s.log.Error(err.Error())
 	}
 }
 
@@ -228,26 +250,31 @@ func (s *Server) WriteError(w http.ResponseWriter, status int, err error) {
 	s.WriteJSON(w, status, out)
 }
 
-// WithLogger specifies a new logger
-func WithLogger(logger log.Interface) Option {
+// Log specifies a new logger
+func Log(l log.Interface) Option {
 	return func(s *Server) {
-		if logger != nil {
-			s.log = logger
+		if l != nil {
+			s.log = l
 		}
 	}
 }
 
-// WithRouter specifies the router to use
-func WithRouter(router *mux.Router) Option {
+// Router specifies the router to use
+func Router(router *mux.Router) Option {
 	return func(s *Server) {
 		if router != nil {
 			s.router = router
+			s.apiRouter = s.router.PathPrefix(s.basePath).Subrouter()
+
+			if s.versioning {
+				s.apiRouter.Use(s.versionMiddleware())
+			}
 		}
 	}
 }
 
-// WithAddr sets the listen address for the server
-func WithAddr(addr string) Option {
+// Addr sets the listen address for the server
+func Addr(addr string) Option {
 	return func(s *Server) {
 		if addr != "" {
 			s.addr = addr
@@ -255,23 +282,16 @@ func WithAddr(addr string) Option {
 	}
 }
 
-// WithAuthorizer sets the authorizer for the server
-func WithAuthorizer(auth oauth.Authorizer) Option {
-	return func(s *Server) {
-		s.auth = auth
-	}
-}
-
-// WithBasepath sets the router basepath for the api
-func WithBasepath(base string) Option {
+// Basepath sets the router basepath for the api
+func Basepath(base string) Option {
 	return func(s *Server) {
 		s.basePath = base
 	}
 }
 
-// WithVersioning enables versioning that will enforce a versioned path
+// Versioning enables versioning that will enforce a versioned path
 // and optionally set the Server header to the serverVersion
-func WithVersioning(version string, serverVersion ...string) Option {
+func Versioning(version string, serverVersion ...string) Option {
 	return func(s *Server) {
 		s.versioning = true
 		s.version = version
@@ -284,9 +304,44 @@ func WithVersioning(version string, serverVersion ...string) Option {
 	}
 }
 
-// WithName specifies the server name
-func WithName(name string) Option {
+// Name specifies the server name
+func Name(name string) Option {
 	return func(s *Server) {
 		s.name = name
 	}
+}
+
+// Log returns the server log
+func (s *Server) Log() log.Interface {
+	return s.log
+}
+
+// BasicAuthorizer implements a simple http basic authorizer that takes a callback for validating the user and password
+func BasicAuthorizer(handler func(user string, pass string) ([]string, error)) Authorizer {
+	return func(r *http.Request) (interface{}, error) {
+		u, p, ok := r.BasicAuth()
+		if !ok {
+			return nil, errors.New("invalid authorization header")
+		}
+
+		ctx := &basicContext{
+			username: u,
+		}
+
+		perms, err := handler(u, p)
+		if err != nil {
+		}
+
+		ctx.permissions = perms
+
+		return ctx, nil
+	}
+}
+
+func (c *basicContext) Username() string {
+	return c.username
+}
+
+func (c *basicContext) Permissions() []string {
+	return c.permissions
 }
