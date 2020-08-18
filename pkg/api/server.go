@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"reflect"
 	"sync"
@@ -42,6 +43,7 @@ type (
 		router        *mux.Router
 		apiRouter     *mux.Router
 		addr          string
+		listener      net.Listener
 		srv           *http.Server
 		lock          sync.Mutex
 		basePath      string
@@ -95,6 +97,9 @@ func NewServer(opts ...Option) *Server {
 
 // Serve starts the http server
 func (s *Server) Serve() error {
+	var listener net.Listener
+	var err error
+
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -103,12 +108,22 @@ func (s *Server) Serve() error {
 	}
 
 	s.srv = &http.Server{
-		Addr:    s.addr,
 		Handler: s.router,
 	}
 
+	if s.listener != nil {
+		listener = s.listener
+	} else if s.addr != "" {
+		listener, err = net.Listen("tcp", s.addr)
+		if err != nil {
+			return err
+		}
+	} else {
+		return errors.New("server address not set")
+	}
+
 	go func() {
-		if err := s.srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := s.srv.Serve(listener); err != nil && err != http.ErrServerClosed {
 			s.log.Fatalf("listen: %s\n", err)
 		}
 	}()
@@ -281,6 +296,13 @@ func Addr(addr string) Option {
 		if addr != "" {
 			s.addr = addr
 		}
+	}
+}
+
+// Listener sets the net listener for the server
+func Listener(l net.Listener) Option {
+	return func(s *Server) {
+		s.listener = l
 	}
 }
 
