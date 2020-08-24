@@ -6,6 +6,7 @@
  * workspace for details.
  */
 
+// Package api is the atomic api helper library
 package api
 
 import (
@@ -166,7 +167,7 @@ func (s *Server) AddRoute(path string, method string, params Parameters, handler
 		var ctx interface{}
 		var resp interface{}
 
-		if len(auth) > 0 {
+		if len(auth) > 0 && auth[0] != nil {
 			ctx, err = auth[0](r)
 			if err != nil {
 				s.log.Error(err.Error())
