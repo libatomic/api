@@ -28,7 +28,6 @@ func (s *Server) versionMiddleware() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			vars := mux.Vars(r)
-			v := strings.TrimPrefix("", "/")
 
 			ver, ok := vars["version"]
 			if !ok {
@@ -36,20 +35,18 @@ func (s *Server) versionMiddleware() func(http.Handler) http.Handler {
 				return
 			}
 
-			if ver != v {
-				pathVer, err := semver.ParseTolerant(ver)
-				if err != nil {
-					w.WriteHeader(http.StatusNotFound)
-					return
-				}
-
-				if pathVer.GT(apiVer) {
-					w.WriteHeader(http.StatusNotFound)
-					return
-				}
-
-				r.URL.Path = strings.Replace(r.URL.Path, ver, v, 1)
+			pathVer, err := semver.ParseTolerant(ver)
+			if err != nil {
+				w.WriteHeader(http.StatusNotFound)
+				return
 			}
+
+			if pathVer.GT(apiVer) {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+
+			r.URL.Path = strings.Replace(r.URL.Path, ver, pathVer.String(), 1)
 
 			context.Set(r, verKey, ver)
 

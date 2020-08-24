@@ -89,6 +89,8 @@ func NewServer(opts ...Option) *Server {
 
 	s.apiRouter = s.router.PathPrefix(s.basePath).Subrouter()
 
+	s.apiRouter.Use(s.logMiddleware())
+
 	if s.versioning {
 		s.apiRouter.Use(s.versionMiddleware())
 	}
