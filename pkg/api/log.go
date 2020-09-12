@@ -58,7 +58,7 @@ func (s *Server) logMiddleware() func(http.Handler) http.Handler {
 				if err := recover(); err != nil {
 					w.WriteHeader(http.StatusInternalServerError)
 
-					s.log.Trace("Fatal http error").WithField("trace", debug.Stack()).Stop(nil)
+					s.log.Trace(string(debug.Stack())).WithField("err", err).Stop(nil)
 				}
 			}()
 
