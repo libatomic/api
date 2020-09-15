@@ -56,8 +56,11 @@ type (
 
 	// Parameters interface handles binding requests
 	Parameters interface {
-		BindRequestW(w http.ResponseWriter, r *http.Request, c ...runtime.Consumer) error
+		BindRequest(w http.ResponseWriter, r *http.Request, c ...runtime.Consumer) error
 	}
+
+	// ContextFunc adds context to a request
+	ContextFunc func(context.Context) context.Context
 
 	// Option provides the server options, these will override th defaults and any atomic
 	// instance values.
@@ -163,7 +166,7 @@ func (s *Server) Router() *mux.Router {
 }
 
 // AddRoute adds a route in the clear
-func (s *Server) AddRoute(path string, method string, params Parameters, handler interface{}, auth ...Authorizer) {
+func (s *Server) AddRoute(path string, method string, params Parameters, handler interface{}, ctxFunc ContextFunc, auth ...Authorizer) {
 	s.apiRouter.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		var err error
 		var ctx interface{}
@@ -190,8 +193,16 @@ func (s *Server) AddRoute(path string, method string, params Parameters, handler
 			}
 		}()
 
+		// Add any additional context from the caller
+		if ctxFunc != nil {
+			r = r.WithContext(ctxFunc(r.Context()))
+		}
+
 		if h, ok := handler.(func(http.ResponseWriter, *http.Request, interface{}) Responder); ok {
 			resp = h(w, r, ctx)
+			return
+		} else if h, ok := handler.(func(http.ResponseWriter, *http.Request, interface{})); ok {
+			h(w, r, ctx)
 			return
 		}
 
@@ -208,7 +219,7 @@ func (s *Server) AddRoute(path string, method string, params Parameters, handler
 			}
 			params = reflect.New(pt).Interface().(Parameters)
 
-			if err := params.BindRequestW(w, r); err != nil {
+			if err := params.BindRequest(w, r); err != nil {
 				s.log.Error(err.Error())
 				s.WriteError(w, http.StatusBadRequest, err)
 				return
@@ -222,10 +233,16 @@ func (s *Server) AddRoute(path string, method string, params Parameters, handler
 		fn := reflect.ValueOf(handler)
 		args := []reflect.Value{}
 
-		if fn.Type().NumIn() > 0 {
+		// support optional context as first parameter
+		firstArg := 0
+		if fn.Type().In(0) == reflect.TypeOf((*context.Context)(nil)).Elem() {
+			args = append(args, reflect.ValueOf(r.Context()))
+			firstArg++
+		}
+		if fn.Type().NumIn() > firstArg {
 			args = append(args, pv)
 		}
-		if fn.Type().NumIn() == 2 {
+		if fn.Type().NumIn() == firstArg+1 {
 			if !cv.IsValid() {
 				cv = reflect.Zero(fn.Type().In(1))
 			}
@@ -270,8 +287,8 @@ func (s *Server) WriteError(w http.ResponseWriter, status int, err error) {
 	s.WriteJSON(w, status, out)
 }
 
-// Log specifies a new logger
-func Log(l log.Interface) Option {
+// WithLog specifies a new logger
+func WithLog(l log.Interface) Option {
 	return func(s *Server) {
 		if l != nil {
 			s.log = l
@@ -279,8 +296,8 @@ func Log(l log.Interface) Option {
 	}
 }
 
-// Router specifies the router to use
-func Router(router *mux.Router) Option {
+// WithRouter specifies the router to use
+func WithRouter(router *mux.Router) Option {
 	return func(s *Server) {
 		if router != nil {
 			s.router = router
@@ -293,8 +310,8 @@ func Router(router *mux.Router) Option {
 	}
 }
 
-// Addr sets the listen address for the server
-func Addr(addr string) Option {
+// WithAddr sets the listen address for the server
+func WithAddr(addr string) Option {
 	return func(s *Server) {
 		if addr != "" {
 			s.addr = addr
@@ -302,23 +319,23 @@ func Addr(addr string) Option {
 	}
 }
 
-// Listener sets the net listener for the server
-func Listener(l net.Listener) Option {
+// WithListener sets the net listener for the server
+func WithListener(l net.Listener) Option {
 	return func(s *Server) {
 		s.listener = l
 	}
 }
 
-// Basepath sets the router basepath for the api
-func Basepath(base string) Option {
+// WithBasepath sets the router basepath for the api
+func WithBasepath(base string) Option {
 	return func(s *Server) {
 		s.basePath = base
 	}
 }
 
-// Versioning enables versioning that will enforce a versioned path
+// WithVersioning enables versioning that will enforce a versioned path
 // and optionally set the Server header to the serverVersion
-func Versioning(version string, serverVersion ...string) Option {
+func WithVersioning(version string, serverVersion ...string) Option {
 	return func(s *Server) {
 		s.versioning = true
 		s.version = version
@@ -331,8 +348,8 @@ func Versioning(version string, serverVersion ...string) Option {
 	}
 }
 
-// Name specifies the server name
-func Name(name string) Option {
+// WithName specifies the server name
+func WithName(name string) Option {
 	return func(s *Server) {
 		s.name = name
 	}
