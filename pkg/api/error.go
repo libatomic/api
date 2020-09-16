@@ -15,6 +15,10 @@ import (
 
 // Error returns an error responder
 func Error(e error) *Response {
+	if r, ok := e.(Responder); ok {
+		return NewResponse(r.Payload()).WithStatus(r.Status())
+	}
+
 	p := struct {
 		Message string `json:"message"`
 	}{

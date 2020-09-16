@@ -234,15 +234,15 @@ func (s *Server) AddRoute(path string, method string, params Parameters, handler
 		args := []reflect.Value{}
 
 		// support optional context as first parameter
-		firstArg := 0
+		narg := 0
 		if fn.Type().In(0) == reflect.TypeOf((*context.Context)(nil)).Elem() {
 			args = append(args, reflect.ValueOf(r.Context()))
-			firstArg++
+			narg++
 		}
-		if fn.Type().NumIn() > firstArg {
+		if fn.Type().NumIn() > narg {
 			args = append(args, pv)
 		}
-		if fn.Type().NumIn() == firstArg+1 {
+		if fn.Type().NumIn() > narg+1 {
 			if !cv.IsValid() {
 				cv = reflect.Zero(fn.Type().In(1))
 			}
