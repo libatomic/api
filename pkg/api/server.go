@@ -165,6 +165,10 @@ func (s *Server) Router() *mux.Router {
 	return s.router
 }
 
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.router.ServeHTTP(w, r)
+}
+
 // AddRoute adds a route in the clear
 func (s *Server) AddRoute(path string, method string, params Parameters, handler interface{}, ctxFunc ContextFunc, auth ...Authorizer) {
 	s.apiRouter.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
