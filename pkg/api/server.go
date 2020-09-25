@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	"github.com/apex/log"
+	"github.com/apex/log/handlers/discard"
 	"github.com/go-openapi/runtime"
 	"github.com/gorilla/mux"
 )
@@ -65,6 +66,12 @@ type (
 	// Option provides the server options, these will override th defaults and any atomic
 	// instance values.
 	Option func(*Server)
+
+	contextKey string
+)
+
+var (
+	contextKeyLogger = contextKey("logger")
 )
 
 // NewServer creates a new server object
@@ -197,6 +204,9 @@ func (s *Server) AddRoute(path string, method string, params Parameters, handler
 			}
 		}()
 
+		// add the log to the context
+		r = r.WithContext(context.WithValue(r.Context(), contextKeyLogger, s.log))
+
 		// Add any additional context from the caller
 		if ctxFunc != nil {
 			r = r.WithContext(ctxFunc(r.Context()))
@@ -248,7 +258,7 @@ func (s *Server) AddRoute(path string, method string, params Parameters, handler
 		}
 		if fn.Type().NumIn() > narg+1 {
 			if !cv.IsValid() {
-				cv = reflect.Zero(fn.Type().In(1))
+				cv = reflect.Zero(fn.Type().In(narg + 1))
 			}
 
 			args = append(args, cv)
@@ -357,6 +367,20 @@ func WithName(name string) Option {
 	return func(s *Server) {
 		s.name = name
 	}
+}
+
+// Log returns the logger
+func Log(ctx context.Context) log.Interface {
+	l := ctx.Value(contextKeyLogger)
+	if l != nil {
+		return l.(log.Interface)
+	}
+
+	logger := &log.Logger{
+		Handler: discard.Default,
+	}
+
+	return logger
 }
 
 // Log returns the server log
