@@ -72,6 +72,8 @@ type (
 
 var (
 	contextKeyLogger = contextKey("logger")
+
+	contextKeyPrincipal = contextKey("principal")
 )
 
 // NewServer creates a new server object
@@ -207,6 +209,11 @@ func (s *Server) AddRoute(path string, method string, params Parameters, handler
 		// add the log to the context
 		r = r.WithContext(context.WithValue(r.Context(), contextKeyLogger, s.log))
 
+		// add the auth context to the context
+		if ctx != nil {
+			r = r.WithContext(context.WithValue(r.Context(), contextKeyPrincipal, ctx))
+		}
+
 		// Add any additional context from the caller
 		if ctxFunc != nil {
 			r = r.WithContext(ctxFunc(r.Context()))
@@ -220,11 +227,7 @@ func (s *Server) AddRoute(path string, method string, params Parameters, handler
 			return
 		}
 
-		var pv, cv reflect.Value
-
-		if ctx != nil {
-			cv = reflect.ValueOf(ctx)
-		}
+		var pv reflect.Value
 
 		if params != nil {
 			pt := reflect.TypeOf(params)
@@ -255,13 +258,6 @@ func (s *Server) AddRoute(path string, method string, params Parameters, handler
 		}
 		if fn.Type().NumIn() > narg {
 			args = append(args, pv)
-		}
-		if fn.Type().NumIn() > narg+1 {
-			if !cv.IsValid() {
-				cv = reflect.Zero(fn.Type().In(narg + 1))
-			}
-
-			args = append(args, cv)
 		}
 
 		rval := fn.Call(args)
@@ -381,6 +377,11 @@ func Log(ctx context.Context) log.Interface {
 	}
 
 	return logger
+}
+
+// Auth returns the authentication principal
+func Principal(ctx context.Context) interface{} {
+	return ctx.Value(contextKeyPrincipal)
 }
 
 // Log returns the server log
