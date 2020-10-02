@@ -26,18 +26,7 @@ import (
 
 type (
 	// Authorizer performs an autorization and returns a context or error on failure
-	Authorizer func(r *http.Request) (interface{}, error)
-
-	// BasicContext is provided by the basic authorizer
-	BasicContext interface {
-		Username() string
-		Permissions() []string
-	}
-
-	basicContext struct {
-		username    string
-		permissions []string
-	}
+	Authorizer func(r *http.Request) (context.Context, error)
 
 	// Server is an http server that provides basic REST funtionality
 	Server struct {
@@ -72,8 +61,6 @@ type (
 
 var (
 	contextKeyLogger = contextKey("logger")
-
-	contextKeyPrincipal = contextKey("principal")
 )
 
 // NewServer creates a new server object
@@ -181,16 +168,19 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // AddRoute adds a route in the clear
 func (s *Server) AddRoute(path string, method string, params Parameters, handler interface{}, ctxFunc ContextFunc, auth ...Authorizer) {
 	s.apiRouter.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-		var err error
-		var ctx interface{}
 		var resp interface{}
 
 		if len(auth) > 0 && auth[0] != nil {
-			ctx, err = auth[0](r)
+			ctx, err := auth[0](r)
 			if err != nil {
 				s.log.Error(err.Error())
 				s.WriteError(w, http.StatusUnauthorized, err)
 				return
+			}
+
+			// add the auth context to the context
+			if ctx != nil {
+				r = r.WithContext(ctx)
 			}
 		}
 
@@ -202,28 +192,23 @@ func (s *Server) AddRoute(path string, method string, params Parameters, handler
 					s.WriteError(w, http.StatusInternalServerError, err)
 				}
 			case error:
-				s.WriteError(w, http.StatusInternalServerError, err)
+				s.WriteError(w, http.StatusInternalServerError, r)
 			}
 		}()
 
 		// add the log to the context
 		r = r.WithContext(context.WithValue(r.Context(), contextKeyLogger, s.log))
 
-		// add the auth context to the context
-		if ctx != nil {
-			r = r.WithContext(context.WithValue(r.Context(), contextKeyPrincipal, ctx))
-		}
-
 		// Add any additional context from the caller
 		if ctxFunc != nil {
 			r = r.WithContext(ctxFunc(r.Context()))
 		}
 
-		if h, ok := handler.(func(http.ResponseWriter, *http.Request, interface{}) Responder); ok {
-			resp = h(w, r, ctx)
+		if h, ok := handler.(func(http.ResponseWriter, *http.Request) Responder); ok {
+			resp = h(w, r)
 			return
-		} else if h, ok := handler.(func(http.ResponseWriter, *http.Request, interface{})); ok {
-			h(w, r, ctx)
+		} else if h, ok := handler.(func(http.ResponseWriter, *http.Request)); ok {
+			h(w, r)
 			return
 		}
 
@@ -379,42 +364,7 @@ func Log(ctx context.Context) log.Interface {
 	return logger
 }
 
-// Auth returns the authentication principal
-func Principal(ctx context.Context) interface{} {
-	return ctx.Value(contextKeyPrincipal)
-}
-
 // Log returns the server log
 func (s *Server) Log() log.Interface {
 	return s.log
-}
-
-// BasicAuthorizer implements a simple http basic authorizer that takes a callback for validating the user and password
-func BasicAuthorizer(handler func(user string, pass string) ([]string, error)) Authorizer {
-	return func(r *http.Request) (interface{}, error) {
-		u, p, ok := r.BasicAuth()
-		if !ok {
-			return nil, errors.New("invalid authorization header")
-		}
-
-		ctx := &basicContext{
-			username: u,
-		}
-
-		perms, err := handler(u, p)
-		if err != nil {
-		}
-
-		ctx.permissions = perms
-
-		return ctx, nil
-	}
-}
-
-func (c *basicContext) Username() string {
-	return c.username
-}
-
-func (c *basicContext) Permissions() []string {
-	return c.permissions
 }
