@@ -9,13 +9,16 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 )
 
 // Error returns an error responder
 func Error(e error) *Response {
-	if r, ok := e.(Responder); ok {
+	var r Responder
+
+	if errors.As(e, &r) {
 		return NewResponse(r.Payload()).WithStatus(r.Status())
 	}
 
