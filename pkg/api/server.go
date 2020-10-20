@@ -171,16 +171,18 @@ func (s *Server) AddRoute(path string, method string, params Parameters, handler
 		var resp interface{}
 
 		if len(auth) > 0 && auth[0] != nil {
-			ctx, err := auth[0](r)
-			if err != nil {
-				s.log.Error(err.Error())
-				s.WriteError(w, http.StatusUnauthorized, err)
-				return
-			}
+			for _, a := range auth {
+				ctx, err := a(r)
+				if err != nil {
+					s.log.Error(err.Error())
+					s.WriteError(w, http.StatusUnauthorized, err)
+					return
+				}
 
-			// add the auth context to the context
-			if ctx != nil {
-				r = r.WithContext(ctx)
+				// add the auth context to the context
+				if ctx != nil {
+					r = r.WithContext(ctx)
+				}
 			}
 		}
 
