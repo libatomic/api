@@ -13,8 +13,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io/ioutil"
 	"net"
 	"net/http"
+	"net/url"
 	"reflect"
 	"sync"
 
@@ -22,6 +24,7 @@ import (
 	"github.com/apex/log/handlers/discard"
 	"github.com/go-openapi/runtime"
 	"github.com/gorilla/mux"
+	"github.com/gorilla/schema"
 )
 
 type (
@@ -57,10 +60,17 @@ type (
 	Option func(*Server)
 
 	contextKey string
+
+	requestContext struct {
+		r *http.Request
+		w http.ResponseWriter
+	}
 )
 
 var (
 	contextKeyLogger = contextKey("logger")
+
+	contextKeyRequest = contextKey("request")
 )
 
 // NewServer creates a new server object
@@ -166,7 +176,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // AddRoute adds a route in the clear
-func (s *Server) AddRoute(path string, method string, params Parameters, handler interface{}, ctxFunc ContextFunc, auth ...Authorizer) {
+func (s *Server) AddRoute(path string, method string, params interface{}, handler interface{}, ctxFunc ContextFunc, auth ...Authorizer) {
 	s.apiRouter.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		var resp interface{}
 
@@ -198,6 +208,9 @@ func (s *Server) AddRoute(path string, method string, params Parameters, handler
 			}
 		}()
 
+		// add the request object to the context
+		r = r.WithContext(context.WithValue(r.Context(), contextKeyRequest, &requestContext{r, w}))
+
 		// add the log to the context
 		r = r.WithContext(context.WithValue(r.Context(), contextKeyLogger, s.log))
 
@@ -221,12 +234,69 @@ func (s *Server) AddRoute(path string, method string, params Parameters, handler
 			if pt.Kind() == reflect.Ptr {
 				pt = pt.Elem()
 			}
-			params = reflect.New(pt).Interface().(Parameters)
+			params = reflect.New(pt).Interface()
 
-			if err := params.BindRequest(w, r); err != nil {
-				s.log.Error(err.Error())
-				s.WriteError(w, http.StatusBadRequest, err)
-				return
+			if d, ok := params.(Parameters); ok {
+				if err := d.BindRequest(w, r); err != nil {
+					s.log.Error(err.Error())
+					s.WriteError(w, http.StatusBadRequest, err)
+					return
+				}
+			} else {
+				decoder := schema.NewDecoder()
+
+				decoder.SetAliasTag("json")
+				decoder.IgnoreUnknownKeys(true)
+
+				vars := mux.Vars(r)
+				if len(vars) > 0 {
+					vals := make(url.Values)
+					for k, v := range vars {
+						vals.Add(k, v)
+					}
+					if err := decoder.Decode(params, vals); err != nil {
+						s.log.Error(err.Error())
+						s.WriteError(w, http.StatusBadRequest, err)
+						return
+					}
+				}
+
+				if len(r.URL.Query()) > 0 {
+					if err := decoder.Decode(params, r.URL.Query()); err != nil {
+						s.log.Error(err.Error())
+						s.WriteError(w, http.StatusBadRequest, err)
+						return
+					}
+				}
+
+				if r.Body != nil {
+					if r.Header.Get("Content-type") == "application/json" {
+						data, err := ioutil.ReadAll(r.Body)
+						if err != nil {
+							s.log.Error(err.Error())
+							s.WriteError(w, http.StatusBadRequest, err)
+							return
+						}
+
+						if err := json.Unmarshal(data, params); err != nil {
+							s.log.Error(err.Error())
+							s.WriteError(w, http.StatusBadRequest, err)
+							return
+						}
+					} else if r.Header.Get("Content-type") == "application/x-www-form-urlencoded" {
+						if err := r.ParseForm(); err != nil {
+							s.log.Error(err.Error())
+							s.WriteError(w, http.StatusBadRequest, err)
+							return
+						}
+
+						if err := decoder.Decode(params, r.Form); err != nil {
+							s.log.Error(err.Error())
+							s.WriteError(w, http.StatusBadRequest, err)
+							return
+						}
+					}
+				}
 			}
 
 			pv = reflect.ValueOf(params)
@@ -364,6 +434,15 @@ func Log(ctx context.Context) log.Interface {
 	}
 
 	return logger
+}
+
+// Request gets the reqest and response objects from the context
+func Request(ctx context.Context) (*http.Request, http.ResponseWriter) {
+	l := ctx.Value(contextKeyRequest)
+	if r, ok := l.(*requestContext); ok {
+		return r.r, r.w
+	}
+	return nil, nil
 }
 
 // Log returns the server log
