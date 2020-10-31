@@ -48,6 +48,16 @@ type (
 		versioning    bool
 	}
 
+	routeOption struct {
+		method      string
+		params      interface{}
+		contextFunc ContextFunc
+		authorizers []Authorizer
+	}
+
+	// RouteOption defines route options
+	RouteOption func(*routeOption)
+
 	// Parameters interface handles binding requests
 	Parameters interface {
 		BindRequest(w http.ResponseWriter, r *http.Request, c ...runtime.Consumer) error
@@ -177,12 +187,21 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // AddRoute adds a route in the clear
-func (s *Server) AddRoute(path string, method string, params interface{}, handler interface{}, ctxFunc ContextFunc, auth ...Authorizer) {
+func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption) {
+	opt := &routeOption{
+		method: http.MethodGet,
+		params: make(map[string]interface{}),
+	}
+
+	for _, o := range opts {
+		o(opt)
+	}
+
 	s.apiRouter.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		var resp interface{}
 
-		if len(auth) > 0 && auth[0] != nil {
-			for _, a := range auth {
+		if len(opt.authorizers) > 0 && opt.authorizers[0] != nil {
+			for _, a := range opt.authorizers {
 				ctx, err := a(r)
 				if err != nil {
 					s.log.Error(err.Error())
@@ -220,8 +239,8 @@ func (s *Server) AddRoute(path string, method string, params interface{}, handle
 		r = r.WithContext(context.WithValue(r.Context(), contextKeyLogger, s.log))
 
 		// Add any additional context from the caller
-		if ctxFunc != nil {
-			r = r.WithContext(ctxFunc(r.Context()))
+		if opt.contextFunc != nil {
+			r = r.WithContext(opt.contextFunc(r.Context()))
 		}
 
 		if h, ok := handler.(func(http.ResponseWriter, *http.Request) Responder); ok {
@@ -234,14 +253,8 @@ func (s *Server) AddRoute(path string, method string, params interface{}, handle
 
 		var pv reflect.Value
 
-		if params != nil {
-			pt := reflect.TypeOf(params)
-			if pt.Kind() == reflect.Ptr {
-				pt = pt.Elem()
-			}
-			params = reflect.New(pt).Interface()
-
-			if d, ok := params.(Parameters); ok {
+		if opt.params != nil {
+			if d, ok := opt.params.(Parameters); ok {
 				if err := d.BindRequest(w, r); err != nil {
 					s.log.Error(err.Error())
 					s.WriteError(w, http.StatusBadRequest, err)
@@ -249,7 +262,6 @@ func (s *Server) AddRoute(path string, method string, params interface{}, handle
 				}
 			} else {
 				decoder := schema.NewDecoder()
-
 				decoder.SetAliasTag("json")
 				decoder.IgnoreUnknownKeys(true)
 
@@ -259,7 +271,7 @@ func (s *Server) AddRoute(path string, method string, params interface{}, handle
 					for k, v := range vars {
 						vals.Add(k, v)
 					}
-					if err := decoder.Decode(params, vals); err != nil {
+					if err := decoder.Decode(opt.params, vals); err != nil {
 						s.log.Error(err.Error())
 						s.WriteError(w, http.StatusBadRequest, err)
 						return
@@ -267,7 +279,7 @@ func (s *Server) AddRoute(path string, method string, params interface{}, handle
 				}
 
 				if len(r.URL.Query()) > 0 {
-					if err := decoder.Decode(params, r.URL.Query()); err != nil {
+					if err := decoder.Decode(opt.params, r.URL.Query()); err != nil {
 						s.log.Error(err.Error())
 						s.WriteError(w, http.StatusBadRequest, err)
 						return
@@ -283,7 +295,7 @@ func (s *Server) AddRoute(path string, method string, params interface{}, handle
 							return
 						}
 
-						if err := json.Unmarshal(data, params); err != nil {
+						if err := json.Unmarshal(data, opt.params); err != nil {
 							s.log.Error(err.Error())
 							s.WriteError(w, http.StatusBadRequest, err)
 							return
@@ -295,7 +307,7 @@ func (s *Server) AddRoute(path string, method string, params interface{}, handle
 							return
 						}
 
-						if err := decoder.Decode(params, r.Form); err != nil {
+						if err := decoder.Decode(opt.params, r.Form); err != nil {
 							s.log.Error(err.Error())
 							s.WriteError(w, http.StatusBadRequest, err)
 							return
@@ -304,7 +316,7 @@ func (s *Server) AddRoute(path string, method string, params interface{}, handle
 				}
 			}
 
-			pv = reflect.ValueOf(params)
+			pv = reflect.ValueOf(opt.params)
 		} else {
 			pv = reflect.Zero(reflect.TypeOf((*interface{})(nil)).Elem())
 		}
@@ -328,7 +340,7 @@ func (s *Server) AddRoute(path string, method string, params interface{}, handle
 			resp = rval[0].Interface()
 		}
 
-	}).Methods(method)
+	}).Methods(opt.method)
 }
 
 // WriteJSON writes out json
@@ -424,6 +436,38 @@ func WithVersioning(version string, serverVersion ...string) Option {
 func WithName(name string) Option {
 	return func(s *Server) {
 		s.name = name
+	}
+}
+
+// WithMethod sets the method for the route option
+func WithMethod(m string) RouteOption {
+	return func(r *routeOption) {
+		r.method = m
+	}
+}
+
+// WithParams sets the params for the route option
+func WithParams(p interface{}) RouteOption {
+	return func(r *routeOption) {
+		pt := reflect.TypeOf(p)
+		if pt.Kind() == reflect.Ptr {
+			pt = pt.Elem()
+		}
+		r.params = reflect.New(pt).Interface()
+	}
+}
+
+// WithContextFunc sets the context handler for the route option
+func WithContextFunc(f ContextFunc) RouteOption {
+	return func(r *routeOption) {
+		r.contextFunc = f
+	}
+}
+
+// WithAuthorizers sets the authorizers
+func WithAuthorizers(a ...Authorizer) RouteOption {
+	return func(r *routeOption) {
+		r.authorizers = a
 	}
 }
 
