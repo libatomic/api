@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"runtime/debug"
 	"sync"
 
 	"github.com/apex/log"
@@ -98,7 +99,7 @@ func NewServer(opts ...Option) *Server {
 
 	s.apiRouter = s.router.PathPrefix(s.basePath).Subrouter()
 
-	s.apiRouter.Use(s.logMiddleware())
+	s.apiRouter.Use(s.LogMiddleware())
 
 	if s.versioning {
 		s.apiRouter.Use(s.versionMiddleware())
@@ -197,6 +198,10 @@ func (s *Server) AddRoute(path string, method string, params interface{}, handle
 		}
 
 		defer func() {
+			if err := recover(); err != nil {
+				debug.PrintStack()
+			}
+
 			switch r := resp.(type) {
 			case Responder:
 				if err := r.Write(w); err != nil {

@@ -50,7 +50,8 @@ func getRemoteAddr(r *http.Request) string {
 	return r.RemoteAddr
 }
 
-func (s *Server) logMiddleware() func(http.Handler) http.Handler {
+// LogMiddleware is simple logging middleware handler
+func (s *Server) LogMiddleware() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		fn := func(w http.ResponseWriter, r *http.Request) {
 
