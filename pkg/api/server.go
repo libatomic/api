@@ -190,7 +190,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption) {
 	opt := &routeOption{
 		method: http.MethodGet,
-		params: make(map[string]interface{}),
 	}
 
 	for _, o := range opts {
