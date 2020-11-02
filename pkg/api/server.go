@@ -289,7 +289,13 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 		var pv reflect.Value
 
 		if opt.params != nil {
-			if d, ok := opt.params.(Parameters); ok {
+			pt := reflect.TypeOf(opt.params)
+			if pt.Kind() == reflect.Ptr {
+				pt = pt.Elem()
+			}
+			params := reflect.New(pt).Interface()
+
+			if d, ok := params.(Parameters); ok {
 				if err := d.BindRequest(w, r); err != nil {
 					s.log.Error(err.Error())
 					s.WriteError(w, http.StatusBadRequest, err)
@@ -306,7 +312,7 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 					for k, v := range vars {
 						vals.Add(k, v)
 					}
-					if err := decoder.Decode(opt.params, vals); err != nil {
+					if err := decoder.Decode(params, vals); err != nil {
 						s.log.Error(err.Error())
 						s.WriteError(w, http.StatusBadRequest, err)
 						return
@@ -314,7 +320,7 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 				}
 
 				if len(r.URL.Query()) > 0 {
-					if err := decoder.Decode(opt.params, r.URL.Query()); err != nil {
+					if err := decoder.Decode(params, r.URL.Query()); err != nil {
 						s.log.Error(err.Error())
 						s.WriteError(w, http.StatusBadRequest, err)
 						return
@@ -338,7 +344,7 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 							return
 						}
 
-						if err := json.Unmarshal(data, opt.params); err != nil {
+						if err := json.Unmarshal(data, params); err != nil {
 							s.log.Error(err.Error())
 							s.WriteError(w, http.StatusBadRequest, err)
 							return
@@ -352,7 +358,7 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 							return
 						}
 
-						if err := decoder.Decode(opt.params, r.Form); err != nil {
+						if err := decoder.Decode(params, r.Form); err != nil {
 							s.log.Error(err.Error())
 							s.WriteError(w, http.StatusBadRequest, err)
 							return
@@ -365,7 +371,7 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 							return
 						}
 
-						if err := decoder.Decode(opt.params, r.Form); err != nil {
+						if err := decoder.Decode(params, r.Form); err != nil {
 							s.log.Error(err.Error())
 							s.WriteError(w, http.StatusBadRequest, err)
 							return
@@ -374,7 +380,7 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 				}
 			}
 
-			pv = reflect.ValueOf(opt.params)
+			pv = reflect.ValueOf(params)
 		} else {
 			pv = reflect.Zero(reflect.TypeOf((*interface{})(nil)).Elem())
 		}
@@ -512,11 +518,7 @@ func WithMethod(m string) RouteOption {
 // WithParams sets the params for the route option
 func WithParams(p interface{}) RouteOption {
 	return func(r *routeOption) {
-		pt := reflect.TypeOf(p)
-		if pt.Kind() == reflect.Ptr {
-			pt = pt.Elem()
-		}
-		r.params = reflect.New(pt).Interface()
+		r.params = p
 	}
 }
 
