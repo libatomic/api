@@ -10,10 +10,12 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io/ioutil"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -231,9 +233,6 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 			}
 		}()
 
-		// add the request object to the context
-		r = r.WithContext(context.WithValue(r.Context(), contextKeyRequest, &requestContext{r, w}))
-
 		// add the log to the context
 		r = r.WithContext(context.WithValue(r.Context(), contextKeyLogger, s.log))
 
@@ -241,6 +240,13 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 		if opt.contextFunc != nil {
 			r = r.WithContext(opt.contextFunc(r.Context()))
 		}
+
+		// add the request object to the context
+		rc := &requestContext{r, w}
+
+		r = r.WithContext(context.WithValue(r.Context(), contextKeyRequest, rc))
+
+		rc.r = r
 
 		if h, ok := handler.(func(http.ResponseWriter, *http.Request) Responder); ok {
 			resp = h(w, r)
@@ -286,7 +292,15 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 				}
 
 				if r.Body != nil {
-					if r.Header.Get("Content-type") == "application/json" {
+					t, _, err := mime.ParseMediaType(r.Header.Get("Content-type"))
+					if err != nil {
+						s.log.Error(err.Error())
+						s.WriteError(w, http.StatusBadRequest, err)
+						return
+					}
+
+					switch t {
+					case "application/json":
 						data, err := ioutil.ReadAll(r.Body)
 						if err != nil {
 							s.log.Error(err.Error())
@@ -299,8 +313,23 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 							s.WriteError(w, http.StatusBadRequest, err)
 							return
 						}
-					} else if r.Header.Get("Content-type") == "application/x-www-form-urlencoded" {
+						r.Body = ioutil.NopCloser(bytes.NewReader(data))
+
+					case "application/x-www-form-urlencoded":
 						if err := r.ParseForm(); err != nil {
+							s.log.Error(err.Error())
+							s.WriteError(w, http.StatusBadRequest, err)
+							return
+						}
+
+						if err := decoder.Decode(opt.params, r.Form); err != nil {
+							s.log.Error(err.Error())
+							s.WriteError(w, http.StatusBadRequest, err)
+							return
+						}
+
+					case "multipart/form-data":
+						if err := r.ParseMultipartForm(1024 * 1024 * 128); err != nil {
 							s.log.Error(err.Error())
 							s.WriteError(w, http.StatusBadRequest, err)
 							return
