@@ -18,6 +18,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
 	"os"
@@ -224,14 +225,41 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 				debug.PrintStack()
 			}
 
-			switch r := resp.(type) {
+			switch t := resp.(type) {
 			case Responder:
-				if err := r.Write(w); err != nil {
+				if _, ok := os.LookupEnv("HTTP_TRACE_ENABLE"); ok {
+					rec := httptest.NewRecorder()
+
+					if err := t.Write(rec); err != nil {
+						s.log.Error(err.Error())
+						s.WriteError(w, http.StatusInternalServerError, err)
+						return
+					}
+
+					dump, err := httputil.DumpResponse(rec.Result(), true)
+					if err != nil {
+						s.log.Error(err.Error())
+						s.WriteError(w, http.StatusInternalServerError, err)
+						return
+					}
+					s.log.Debugf("%s <- %s", r.RequestURI, (dump))
+
+					for k, vals := range rec.Header() {
+						for _, v := range vals {
+							w.Header().Add(k, v)
+						}
+					}
+					w.WriteHeader(rec.Code)
+					w.Write(rec.Body.Bytes())
+					return
+				}
+
+				if err := t.Write(w); err != nil {
 					s.log.Error(err.Error())
 					s.WriteError(w, http.StatusInternalServerError, err)
 				}
 			case error:
-				s.WriteError(w, http.StatusInternalServerError, r)
+				s.WriteError(w, http.StatusInternalServerError, t)
 			}
 		}()
 
@@ -366,7 +394,7 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 
 		if _, ok := os.LookupEnv("HTTP_TRACE_ENABLE"); ok {
 			if dump, err := httputil.DumpRequest(r, true); err == nil {
-				log.Debug(string(dump))
+				s.log.Debugf("%s -> %s", r.RequestURI, (dump))
 			}
 		}
 		rval := fn.Call(args)
