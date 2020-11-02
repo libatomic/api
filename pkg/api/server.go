@@ -18,7 +18,9 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
+	"os"
 	"reflect"
 	"runtime/debug"
 	"sync"
@@ -362,6 +364,11 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 			args = append(args, pv)
 		}
 
+		if _, ok := os.LookupEnv("HTTP_TRACE_ENABLE"); ok {
+			if dump, err := httputil.DumpRequest(r, true); err == nil {
+				log.Debug(string(dump))
+			}
+		}
 		rval := fn.Call(args)
 
 		if len(rval) > 0 {
