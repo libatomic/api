@@ -291,11 +291,7 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 					}
 				}
 
-				if r.Body != nil {
-					ct := r.Header.Get("Content-type")
-					if ct == "" {
-						ct = "application/json"
-					}
+				if r.Body != nil && r.ContentLength > 0 {
 					t, _, err := mime.ParseMediaType(r.Header.Get("Content-type"))
 					if err != nil {
 						s.log.Error(err.Error())
