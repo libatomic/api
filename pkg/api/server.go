@@ -24,6 +24,7 @@ import (
 	"os"
 	"reflect"
 	"runtime/debug"
+	"strings"
 	"sync"
 
 	"github.com/apex/log"
@@ -223,6 +224,14 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 		defer func() {
 			if err := recover(); err != nil {
 				debug.PrintStack()
+
+				if e, ok := err.(error); ok {
+					s.WriteError(w, http.StatusInternalServerError, e)
+				} else {
+					w.WriteHeader(http.StatusInternalServerError)
+				}
+
+				return
 			}
 
 			switch t := resp.(type) {
@@ -305,6 +314,13 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 				decoder := schema.NewDecoder()
 				decoder.SetAliasTag("json")
 				decoder.IgnoreUnknownKeys(true)
+
+				decoder.RegisterConverter([]string{}, func(input string) reflect.Value {
+					if strings.Contains(input, ",") {
+						return reflect.ValueOf(strings.Split(input, ","))
+					}
+					return reflect.ValueOf(strings.Fields(input))
+				})
 
 				vars := mux.Vars(r)
 				if len(vars) > 0 {
