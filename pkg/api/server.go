@@ -29,7 +29,6 @@ import (
 
 	"github.com/apex/log"
 	"github.com/apex/log/handlers/discard"
-	"github.com/go-openapi/runtime"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/schema"
 )
@@ -66,7 +65,7 @@ type (
 
 	// Parameters interface handles binding requests
 	Parameters interface {
-		BindRequest(w http.ResponseWriter, r *http.Request, c ...runtime.Consumer) error
+		Validate() error
 	}
 
 	// ContextFunc adds context to a request
@@ -304,95 +303,95 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 			}
 			params := reflect.New(pt).Interface()
 
-			if d, ok := params.(Parameters); ok {
-				if err := d.BindRequest(w, r); err != nil {
+			decoder := schema.NewDecoder()
+			decoder.SetAliasTag("json")
+			decoder.IgnoreUnknownKeys(true)
+
+			decoder.RegisterConverter([]string{}, func(input string) reflect.Value {
+				if strings.Contains(input, ",") {
+					return reflect.ValueOf(strings.Split(input, ","))
+				}
+				return reflect.ValueOf(strings.Fields(input))
+			})
+
+			vars := mux.Vars(r)
+			if len(vars) > 0 {
+				vals := make(url.Values)
+				for k, v := range vars {
+					vals.Add(k, v)
+				}
+				if err := decoder.Decode(params, vals); err != nil {
 					s.log.Error(err.Error())
 					s.WriteError(w, http.StatusBadRequest, err)
 					return
 				}
-			} else {
-				decoder := schema.NewDecoder()
-				decoder.SetAliasTag("json")
-				decoder.IgnoreUnknownKeys(true)
+			}
 
-				decoder.RegisterConverter([]string{}, func(input string) reflect.Value {
-					if strings.Contains(input, ",") {
-						return reflect.ValueOf(strings.Split(input, ","))
-					}
-					return reflect.ValueOf(strings.Fields(input))
-				})
+			if len(r.URL.Query()) > 0 {
+				if err := decoder.Decode(params, r.URL.Query()); err != nil {
+					s.log.Error(err.Error())
+					s.WriteError(w, http.StatusBadRequest, err)
+					return
+				}
+			}
 
-				vars := mux.Vars(r)
-				if len(vars) > 0 {
-					vals := make(url.Values)
-					for k, v := range vars {
-						vals.Add(k, v)
-					}
-					if err := decoder.Decode(params, vals); err != nil {
-						s.log.Error(err.Error())
-						s.WriteError(w, http.StatusBadRequest, err)
-						return
-					}
+			if r.Body != nil && r.ContentLength > 0 {
+				t, _, err := mime.ParseMediaType(r.Header.Get("Content-type"))
+				if err != nil {
+					s.log.Error(err.Error())
+					s.WriteError(w, http.StatusBadRequest, err)
+					return
 				}
 
-				if len(r.URL.Query()) > 0 {
-					if err := decoder.Decode(params, r.URL.Query()); err != nil {
-						s.log.Error(err.Error())
-						s.WriteError(w, http.StatusBadRequest, err)
-						return
-					}
-				}
-
-				if r.Body != nil && r.ContentLength > 0 {
-					t, _, err := mime.ParseMediaType(r.Header.Get("Content-type"))
+				switch t {
+				case "application/json":
+					data, err := ioutil.ReadAll(r.Body)
 					if err != nil {
 						s.log.Error(err.Error())
 						s.WriteError(w, http.StatusBadRequest, err)
 						return
 					}
 
-					switch t {
-					case "application/json":
-						data, err := ioutil.ReadAll(r.Body)
-						if err != nil {
-							s.log.Error(err.Error())
-							s.WriteError(w, http.StatusBadRequest, err)
-							return
-						}
-
-						if err := json.Unmarshal(data, params); err != nil {
-							s.log.Error(err.Error())
-							s.WriteError(w, http.StatusBadRequest, err)
-							return
-						}
-						r.Body = ioutil.NopCloser(bytes.NewReader(data))
-
-					case "application/x-www-form-urlencoded":
-						if err := r.ParseForm(); err != nil {
-							s.log.Error(err.Error())
-							s.WriteError(w, http.StatusBadRequest, err)
-							return
-						}
-
-						if err := decoder.Decode(params, r.Form); err != nil {
-							s.log.Error(err.Error())
-							s.WriteError(w, http.StatusBadRequest, err)
-							return
-						}
-
-					case "multipart/form-data":
-						if err := r.ParseMultipartForm(1024 * 1024 * 128); err != nil {
-							s.log.Error(err.Error())
-							s.WriteError(w, http.StatusBadRequest, err)
-							return
-						}
-
-						if err := decoder.Decode(params, r.Form); err != nil {
-							s.log.Error(err.Error())
-							s.WriteError(w, http.StatusBadRequest, err)
-							return
-						}
+					if err := json.Unmarshal(data, params); err != nil {
+						s.log.Error(err.Error())
+						s.WriteError(w, http.StatusBadRequest, err)
+						return
 					}
+					r.Body = ioutil.NopCloser(bytes.NewReader(data))
+
+				case "application/x-www-form-urlencoded":
+					if err := r.ParseForm(); err != nil {
+						s.log.Error(err.Error())
+						s.WriteError(w, http.StatusBadRequest, err)
+						return
+					}
+
+					if err := decoder.Decode(params, r.Form); err != nil {
+						s.log.Error(err.Error())
+						s.WriteError(w, http.StatusBadRequest, err)
+						return
+					}
+
+				case "multipart/form-data":
+					if err := r.ParseMultipartForm(1024 * 1024 * 128); err != nil {
+						s.log.Error(err.Error())
+						s.WriteError(w, http.StatusBadRequest, err)
+						return
+					}
+
+					if err := decoder.Decode(params, r.Form); err != nil {
+						s.log.Error(err.Error())
+						s.WriteError(w, http.StatusBadRequest, err)
+						return
+					}
+				}
+			}
+
+			if v, ok := params.(Parameters); ok {
+				if err := v.Validate(); err != nil {
+					s.log.Error(err.Error())
+					s.WriteError(w, http.StatusBadRequest, err)
+					return
 				}
 			}
 
