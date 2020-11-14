@@ -87,6 +87,8 @@ var (
 	contextKeyLogger = contextKey("logger")
 
 	contextKeyRequest = contextKey("request")
+
+	contextKeyBody = contextKey("body")
 )
 
 // NewServer creates a new server object
@@ -357,6 +359,8 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 						s.WriteError(w, http.StatusBadRequest, err)
 						return
 					}
+					r = r.WithContext(context.WithValue(r.Context(), contextKeyBody, data))
+
 					r.Body = ioutil.NopCloser(bytes.NewReader(data))
 
 				case "application/x-www-form-urlencoded":
@@ -572,6 +576,11 @@ func Request(ctx context.Context) (*http.Request, http.ResponseWriter) {
 		return r.r, r.w
 	}
 	return nil, nil
+}
+
+// RequestBody returns the raw request body
+func RequestBody(ctx context.Context) []byte {
+	return ctx.Value(contextKeyBody).([]byte)
 }
 
 // Log returns the server log
