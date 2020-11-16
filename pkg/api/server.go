@@ -422,8 +422,10 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 				s.log.Debugf("%s -> %s", r.RequestURI, (dump))
 			}
 		}
-		rval := fn.Call(args)
 
+		rc.r = r
+
+		rval := fn.Call(args)
 		if len(rval) > 0 {
 			resp = rval[0].Interface()
 		}
