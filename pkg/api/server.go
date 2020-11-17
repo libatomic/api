@@ -454,10 +454,11 @@ func (s *Server) WriteJSON(w http.ResponseWriter, status int, v interface{}, pre
 func (s *Server) WriteError(w http.ResponseWriter, status int, err error) {
 	out := struct {
 		Message string `json:"message"`
+		Error   error  `json:"error"`
 	}{
 		Message: err.Error(),
+		Error:   err,
 	}
-
 	s.WriteJSON(w, status, out)
 }
 
