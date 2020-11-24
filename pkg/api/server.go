@@ -29,6 +29,7 @@ import (
 
 	"github.com/apex/log"
 	"github.com/apex/log/handlers/discard"
+	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/schema"
 )
@@ -454,11 +455,15 @@ func (s *Server) WriteJSON(w http.ResponseWriter, status int, v interface{}, pre
 func (s *Server) WriteError(w http.ResponseWriter, status int, err error) {
 	out := struct {
 		Message string `json:"message"`
-		Error   error  `json:"error"`
+		Error   error  `json:"error,omitempty"`
 	}{
 		Message: err.Error(),
-		Error:   err,
 	}
+
+	if e, ok := err.(validation.Error); ok {
+		out.Error = e
+	}
+
 	s.WriteJSON(w, status, out)
 }
 
