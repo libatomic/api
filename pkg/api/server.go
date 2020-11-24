@@ -236,7 +236,7 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 						return
 					}
 
-					dump, err := httputil.DumpResponse(rec.Result(), true)
+					dump, err := httputil.DumpResponse(rec.Result(), rec.Body.Len() < 1024)
 					if err != nil {
 						s.log.Error(err.Error())
 						s.WriteError(w, http.StatusInternalServerError, err)
@@ -269,6 +269,9 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 				if err != nil {
 					if r, ok := err.(Responder); ok {
 						resp = r
+					} else {
+						s.log.Error(err.Error())
+						s.WriteError(w, http.StatusUnauthorized, err)
 					}
 					return
 				}
@@ -392,14 +395,6 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 						s.WriteError(w, http.StatusBadRequest, err)
 						return
 					}
-				}
-			}
-
-			if v, ok := params.(Parameters); ok {
-				if err := v.Validate(); err != nil {
-					s.log.Error(err.Error())
-					s.WriteError(w, http.StatusBadRequest, err)
-					return
 				}
 			}
 

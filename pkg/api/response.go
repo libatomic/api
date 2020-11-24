@@ -11,6 +11,7 @@ package api
 import (
 	"encoding/json"
 	"encoding/xml"
+	"io"
 	"net/http"
 	"net/url"
 )
@@ -46,10 +47,23 @@ func NewResponse(payload ...interface{}) *Response {
 	if len(payload) > 0 {
 		p = payload[0]
 	}
+
+	var writer WriterFunc
+	switch p.(type) {
+	case []byte:
+		writer = Write
+	case string:
+		writer = Write
+	case io.Reader:
+		writer = Write
+	default:
+		writer = WriteJSON
+	}
+
 	return &Response{
 		status:  http.StatusOK,
 		payload: p,
-		writer:  WriteJSON,
+		writer:  writer,
 		header:  make(http.Header),
 	}
 }
@@ -179,6 +193,8 @@ func Write(w http.ResponseWriter, status int, payload interface{}, headers ...ht
 		if _, err := w.Write([]byte(data)); err != nil {
 			return err
 		}
+	case io.Reader:
+		io.Copy(w, data)
 	}
 
 	return nil
