@@ -14,6 +14,12 @@ import (
 	"net/http"
 )
 
+type (
+	redirectError struct {
+		*Response
+	}
+)
+
 // Error returns an error responder
 func Error(e error) *Response {
 	var r Responder
@@ -50,4 +56,13 @@ func StatusError(status int, e error) *Response {
 // StatusErrorf sets the status and error message in one go
 func StatusErrorf(status int, f string, args ...interface{}) *Response {
 	return Errorf(f, args...).WithStatus(status)
+}
+
+// RedirectError returns a redirect error
+func RedirectError(r *Response) error {
+	return &redirectError{r}
+}
+
+func (e *redirectError) Error() string {
+	return ""
 }

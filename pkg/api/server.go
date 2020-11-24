@@ -212,22 +212,6 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 
 		r = r.WithContext(context.WithValue(r.Context(), contextKeyRequest, rc))
 
-		if len(opt.authorizers) > 0 && opt.authorizers[0] != nil {
-			for _, a := range opt.authorizers {
-				ctx, err := a(r)
-				if err != nil {
-					s.log.Error(err.Error())
-					s.WriteError(w, http.StatusUnauthorized, err)
-					return
-				}
-
-				// add the auth context to the context
-				if ctx != nil {
-					r = r.WithContext(ctx)
-				}
-			}
-		}
-
 		defer func() {
 			if err := recover(); err != nil {
 				debug.PrintStack()
@@ -278,6 +262,23 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 				s.WriteError(w, http.StatusInternalServerError, t)
 			}
 		}()
+
+		if len(opt.authorizers) > 0 && opt.authorizers[0] != nil {
+			for _, a := range opt.authorizers {
+				ctx, err := a(r)
+				if err != nil {
+					if r, ok := err.(Responder); ok {
+						resp = r
+					}
+					return
+				}
+
+				// add the auth context to the context
+				if ctx != nil {
+					r = r.WithContext(ctx)
+				}
+			}
+		}
 
 		// add the log to the context
 		r = r.WithContext(context.WithValue(r.Context(), contextKeyLogger, s.log))
