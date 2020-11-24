@@ -207,6 +207,11 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 	s.apiRouter.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		var resp interface{}
 
+		// add the request object to the context
+		rc := &requestContext{r, w}
+
+		r = r.WithContext(context.WithValue(r.Context(), contextKeyRequest, rc))
+
 		if len(opt.authorizers) > 0 && opt.authorizers[0] != nil {
 			for _, a := range opt.authorizers {
 				ctx, err := a(r)
@@ -276,17 +281,14 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 
 		// add the log to the context
 		r = r.WithContext(context.WithValue(r.Context(), contextKeyLogger, s.log))
+		rc.r = r
 
 		// Add any additional context from the caller
 		if opt.contextFunc != nil {
 			r = r.WithContext(opt.contextFunc(r.Context()))
 		}
 
-		// add the request object to the context
-		rc := &requestContext{r, w}
-
 		r = r.WithContext(context.WithValue(r.Context(), contextKeyRequest, rc))
-
 		rc.r = r
 
 		if h, ok := handler.(func(http.ResponseWriter, *http.Request) Responder); ok {
