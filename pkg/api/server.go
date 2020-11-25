@@ -53,7 +53,7 @@ type (
 		version       string
 		serverVersion string
 		versioning    bool
-		corsOrigin    string
+		corsOrigin    []string
 	}
 
 	routeOption struct {
@@ -143,12 +143,28 @@ func (s *Server) Serve() error {
 
 	handler := http.Handler(s.router)
 
-	if s.corsOrigin != "" {
-		headersOk := handlers.AllowedHeaders([]string{"X-Requested-With", "Content-Type", "Origin", "Host", "Cookie", "Postman-Token"})
-		originsOk := handlers.AllowedOrigins([]string{s.corsOrigin})
-		methodsOk := handlers.AllowedMethods([]string{"GET", "HEAD", "POST", "PUT", "OPTIONS"})
-
-		handler = handlers.CORS(originsOk, headersOk, methodsOk, handlers.AllowCredentials())(handler)
+	if len(s.corsOrigin) > 0 {
+		handler = handlers.CORS(
+			handlers.AllowedOrigins(s.corsOrigin),
+			handlers.AllowedMethods([]string{"OPTIONS", "HEAD", "GET", "POST", "PUT", "DELETE"}),
+			handlers.ExposedHeaders([]string{
+				"X-Total-Count",
+				"X-Atom-Link",
+				"X-Last-Entry-Date",
+				"Server",
+			}),
+			handlers.AllowedHeaders([]string{
+				"Accept",
+				"Accept-Language",
+				"Authorization",
+				"Content-Type",
+				"Content-Language",
+				"Origin",
+				"Range",
+				"X-Forwarded-For",
+				"X-Original-Method",
+				"X-Redirected-From"}),
+		)(handler)
 	}
 
 	s.srv = &http.Server{
@@ -498,7 +514,7 @@ func WithLog(l log.Interface) Option {
 }
 
 // WithCORS sets the cors origin and enables cors on the router
-func WithCORS(origin string) Option {
+func WithCORS(origin ...string) Option {
 	return func(s *Server) {
 		s.corsOrigin = origin
 	}
