@@ -30,6 +30,7 @@ import (
 	"github.com/apex/log"
 	"github.com/apex/log/handlers/discard"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
+	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/schema"
 )
@@ -52,6 +53,7 @@ type (
 		version       string
 		serverVersion string
 		versioning    bool
+		corsOrigin    string
 	}
 
 	routeOption struct {
@@ -139,8 +141,18 @@ func (s *Server) Serve() error {
 		return errors.New("server already running")
 	}
 
+	handler := http.Handler(s.router)
+
+	if s.corsOrigin != "" {
+		headersOk := handlers.AllowedHeaders([]string{"X-Requested-With", "Content-Type", "Origin", "Host", "Cookie", "Postman-Token"})
+		originsOk := handlers.AllowedOrigins([]string{s.corsOrigin})
+		methodsOk := handlers.AllowedMethods([]string{"GET", "HEAD", "POST", "PUT", "OPTIONS"})
+
+		handler = handlers.CORS(originsOk, headersOk, methodsOk, handlers.AllowCredentials())(handler)
+	}
+
 	s.srv = &http.Server{
-		Handler: s.router,
+		Handler: handler,
 	}
 
 	if s.listener != nil {
@@ -482,6 +494,13 @@ func WithLog(l log.Interface) Option {
 		if l != nil {
 			s.log = l
 		}
+	}
+}
+
+// WithCORS sets the cors origin and enables cors on the router
+func WithCORS(origin string) Option {
+	return func(s *Server) {
+		s.corsOrigin = origin
 	}
 }
 
