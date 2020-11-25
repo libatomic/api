@@ -14,6 +14,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+
+	"github.com/spf13/cast"
 )
 
 type (
@@ -184,6 +186,10 @@ func Write(w http.ResponseWriter, status int, payload interface{}, headers ...ht
 
 	w.WriteHeader(status)
 
+	if closer, ok := payload.(io.Closer); ok {
+		defer closer.Close()
+	}
+
 	switch data := payload.(type) {
 	case []byte:
 		if _, err := w.Write(data); err != nil {
@@ -194,7 +200,15 @@ func Write(w http.ResponseWriter, status int, payload interface{}, headers ...ht
 			return err
 		}
 	case io.Reader:
-		io.Copy(w, data)
+		if l := w.Header().Get("Content-Length"); l != "" {
+			if _, err := io.CopyN(w, data, cast.ToInt64(l)); err != nil {
+				return err
+			}
+		} else {
+			if _, err := io.Copy(w, data); err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil
