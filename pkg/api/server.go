@@ -152,6 +152,8 @@ func (s *Server) Serve() error {
 				"X-Atom-Link",
 				"X-Last-Entry-Date",
 				"Server",
+				"Content-Length",
+				"Content-Range",
 			}),
 			handlers.AllowedHeaders([]string{
 				"Accept",
@@ -161,9 +163,11 @@ func (s *Server) Serve() error {
 				"Content-Language",
 				"Origin",
 				"Range",
+				"If-Modified-Since",
 				"X-Forwarded-For",
 				"X-Original-Method",
 				"X-Redirected-From"}),
+			handlers.AllowCredentials(),
 		)(handler)
 	}
 
