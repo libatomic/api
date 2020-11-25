@@ -57,6 +57,7 @@ type (
 	routeOption struct {
 		method      string
 		params      interface{}
+		validate    bool
 		contextFunc ContextFunc
 		authorizers []Authorizer
 	}
@@ -398,6 +399,16 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 				}
 			}
 
+			if opt.validate {
+				if v, ok := params.(Parameters); ok {
+					if err := v.Validate(); err != nil {
+						s.log.Error(err.Error())
+						s.WriteError(w, http.StatusBadRequest, err)
+						return
+					}
+				}
+			}
+
 			pv = reflect.ValueOf(params)
 		} else {
 			pv = reflect.Zero(reflect.TypeOf((*interface{})(nil)).Elem())
@@ -551,6 +562,13 @@ func WithParams(p interface{}) RouteOption {
 func WithContextFunc(f ContextFunc) RouteOption {
 	return func(r *routeOption) {
 		r.contextFunc = f
+	}
+}
+
+// WithValidation sets the parameter validation
+func WithValidation(v bool) RouteOption {
+	return func(o *routeOption) {
+		o.validate = true
 	}
 }
 
