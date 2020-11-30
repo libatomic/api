@@ -10,6 +10,7 @@
 package api
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -26,13 +27,16 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/allegro/bigcache"
 	"github.com/apex/log"
 	"github.com/apex/log/handlers/discard"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/schema"
+	"github.com/spf13/cast"
 )
 
 type (
@@ -54,6 +58,8 @@ type (
 		serverVersion string
 		versioning    bool
 		corsOrigin    []string
+		cache         *bigcache.BigCache
+		cacheTTL      time.Duration
 	}
 
 	routeOption struct {
@@ -62,6 +68,7 @@ type (
 		validate    bool
 		contextFunc ContextFunc
 		authorizers []Authorizer
+		cache       bool
 	}
 
 	// RouteOption defines route options
@@ -102,6 +109,7 @@ func NewServer(opts ...Option) *Server {
 		defaultBasePath = "/api/{version}"
 		defaultName     = "Atomic"
 		defaultVersion  = "1.0.0"
+		defaultCacheTTL = time.Hour
 	)
 
 	s := &Server{
@@ -112,6 +120,7 @@ func NewServer(opts ...Option) *Server {
 		version:    defaultVersion,
 		versioning: false,
 		basePath:   defaultBasePath,
+		cacheTTL:   defaultCacheTTL,
 	}
 
 	for _, opt := range opts {
@@ -125,6 +134,8 @@ func NewServer(opts ...Option) *Server {
 	if s.versioning {
 		s.apiRouter.Use(s.versionMiddleware())
 	}
+
+	s.cache, _ = bigcache.NewBigCache(bigcache.DefaultConfig(s.cacheTTL))
 
 	return s
 }
@@ -240,6 +251,13 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 	s.apiRouter.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		var resp interface{}
 
+		cache := opt.cache
+		trace := cast.ToBool(os.Getenv("HTTP_TRACE_ENABLE"))
+
+		if r.Header.Get("Cache-Control") == "no-cache" {
+			cache = false
+		}
+
 		// add the request object to the context
 		rc := &requestContext{r, w}
 
@@ -260,7 +278,7 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 
 			switch t := resp.(type) {
 			case Responder:
-				if _, ok := os.LookupEnv("HTTP_TRACE_ENABLE"); ok {
+				if cache || trace {
 					rec := httptest.NewRecorder()
 
 					if err := t.Write(rec); err != nil {
@@ -269,13 +287,20 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 						return
 					}
 
-					dump, err := httputil.DumpResponse(rec.Result(), rec.Body.Len() < 1024)
+					dump, err := httputil.DumpResponse(rec.Result(), cache || rec.Body.Len() < 1024)
 					if err != nil {
 						s.log.Error(err.Error())
 						s.WriteError(w, http.StatusInternalServerError, err)
 						return
 					}
-					s.log.Debugf("%s <- %s", r.RequestURI, (dump))
+
+					if trace {
+						s.log.Debugf("%s <- %s", r.RequestURI, (dump))
+					}
+
+					if cache {
+						s.cache.Set(r.RequestURI, dump)
+					}
 
 					for k, vals := range rec.Header() {
 						for _, v := range vals {
@@ -284,6 +309,7 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 					}
 					w.WriteHeader(rec.Code)
 					w.Write(rec.Body.Bytes())
+
 					return
 				}
 
@@ -291,6 +317,9 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 					s.log.Error(err.Error())
 					s.WriteError(w, http.StatusInternalServerError, err)
 				}
+			case *http.Response:
+				t.Header.Write(w)
+				t.Write(w)
 			case error:
 				s.WriteError(w, http.StatusInternalServerError, t)
 			}
@@ -312,6 +341,18 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 				// add the auth context to the context
 				if ctx != nil {
 					r = r.WithContext(ctx)
+				}
+			}
+		}
+
+		if cache {
+			if val, err := s.cache.Get(r.RequestURI); err == nil {
+				resp, err = http.ReadResponse(bufio.NewReader(bytes.NewReader(val)), r)
+				if err != nil {
+					resp = nil
+					s.log.Error(err.Error())
+					s.WriteError(w, http.StatusInternalServerError, err)
+					return
 				}
 			}
 		}
@@ -583,6 +624,13 @@ func WithName(name string) Option {
 	}
 }
 
+// WithCache enables content caching for the route
+func WithCache(ttl time.Duration) Option {
+	return func(s *Server) {
+		s.cacheTTL = ttl
+	}
+}
+
 // WithMethod sets the method for the route option
 func WithMethod(m string) RouteOption {
 	return func(r *routeOption) {
@@ -615,6 +663,13 @@ func WithValidation(v bool) RouteOption {
 func WithAuthorizers(a ...Authorizer) RouteOption {
 	return func(r *routeOption) {
 		r.authorizers = a
+	}
+}
+
+// WithCaching enables content caching for the route
+func WithCaching() RouteOption {
+	return func(r *routeOption) {
+		r.cache = true
 	}
 }
 

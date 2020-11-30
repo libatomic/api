@@ -41,6 +41,11 @@ type (
 		writer  WriterFunc
 		header  http.Header
 	}
+
+	// Encoder is a response encoder
+	Encoder interface {
+		Encode(w io.Writer) error
+	}
 )
 
 // NewResponse returns a response with defaults
@@ -55,6 +60,8 @@ func NewResponse(payload ...interface{}) *Response {
 	case []byte:
 		writer = Write
 	case string:
+		writer = Write
+	case Encoder:
 		writer = Write
 	case io.Reader:
 		writer = Write
@@ -149,6 +156,10 @@ func WriteJSON(w http.ResponseWriter, status int, payload interface{}, headers .
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 
+	if enc, ok := payload.(Encoder); ok {
+		return enc.Encode(w)
+	}
+
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
 
@@ -168,6 +179,10 @@ func WriteXML(w http.ResponseWriter, status int, payload interface{}, headers ..
 	w.Header().Set("Content-Type", "application/xml")
 
 	w.WriteHeader(status)
+
+	if enc, ok := payload.(Encoder); ok {
+		return enc.Encode(w)
+	}
 
 	enc := xml.NewEncoder(w)
 
@@ -197,6 +212,10 @@ func Write(w http.ResponseWriter, status int, payload interface{}, headers ...ht
 		}
 	case string:
 		if _, err := w.Write([]byte(data)); err != nil {
+			return err
+		}
+	case Encoder:
+		if err := data.Encode(w); err != nil {
 			return err
 		}
 	case io.Reader:
