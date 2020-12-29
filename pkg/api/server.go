@@ -469,6 +469,17 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 						s.WriteError(w, http.StatusBadRequest, err)
 						return
 					}
+				default:
+					data, err := ioutil.ReadAll(r.Body)
+					if err != nil {
+						s.log.Error(err.Error())
+						s.WriteError(w, http.StatusBadRequest, err)
+						return
+					}
+
+					r = r.WithContext(context.WithValue(r.Context(), contextKeyBody, data))
+
+					r.Body = ioutil.NopCloser(bytes.NewReader(data))
 				}
 			}
 
