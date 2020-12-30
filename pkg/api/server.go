@@ -165,6 +165,7 @@ func (s *Server) Serve() error {
 				"Server",
 				"Content-Length",
 				"Content-Range",
+				"Content-Encoding",
 			}),
 			handlers.AllowedHeaders([]string{
 				"Accept",
@@ -281,7 +282,7 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 				if cache || trace {
 					rec := httptest.NewRecorder()
 
-					if err := t.Write(rec); err != nil {
+					if err := t.Write(rec, r); err != nil {
 						s.log.Error(err.Error())
 						s.WriteError(w, http.StatusInternalServerError, err)
 						return
@@ -313,13 +314,15 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 					return
 				}
 
-				if err := t.Write(w); err != nil {
+				if err := t.Write(w, r); err != nil {
 					s.log.Error(err.Error())
 					s.WriteError(w, http.StatusInternalServerError, err)
 				}
+
 			case *http.Response:
 				t.Header.Write(w)
 				t.Write(w)
+
 			case error:
 				s.WriteError(w, http.StatusInternalServerError, t)
 			}

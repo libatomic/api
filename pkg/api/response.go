@@ -9,11 +9,13 @@
 package api
 
 import (
+	"compress/gzip"
 	"encoding/json"
 	"encoding/xml"
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/spf13/cast"
 )
@@ -28,17 +30,16 @@ type (
 		Payload() interface{}
 
 		// Write writes ou the payload
-		Write(w http.ResponseWriter) error
+		Write(w http.ResponseWriter, r *http.Request) error
 	}
 
-	// WriterFunc is a response writer
-	WriterFunc func(w http.ResponseWriter, status int, payload interface{}, headers ...http.Header) error
+	// EncodeFunc encodes the payload
+	EncodeFunc func(w io.Writer) error
 
 	// Response is the common response type
 	Response struct {
 		status  int
 		payload interface{}
-		writer  WriterFunc
 		header  http.Header
 	}
 
@@ -55,25 +56,13 @@ func NewResponse(payload ...interface{}) *Response {
 		p = payload[0]
 	}
 
-	var writer WriterFunc
-	switch p.(type) {
-	case []byte:
-		writer = Write
-	case string:
-		writer = Write
-	case Encoder:
-		writer = Write
-	case io.Reader:
-		writer = Write
-	default:
-		writer = WriteJSON
-	}
+	header := make(http.Header)
+	header.Set("Content-Type", "application/json")
 
 	return &Response{
 		status:  http.StatusOK,
 		payload: p,
-		writer:  writer,
-		header:  make(http.Header),
+		header:  header,
 	}
 }
 
@@ -85,7 +74,7 @@ func (r *Response) WithStatus(status int) *Response {
 
 // WithHeader adds headers to the request
 func (r *Response) WithHeader(key string, value string) *Response {
-	r.header.Add(key, value)
+	r.header.Set(key, value)
 	return r
 }
 
@@ -110,12 +99,6 @@ func Redirect(u *url.URL, args ...map[string]string) *Response {
 	return r
 }
 
-// WithWriter sets the writer
-func (r *Response) WithWriter(w WriterFunc) *Response {
-	r.writer = w
-	return r
-}
-
 // Status returns the status
 func (r *Response) Status() int {
 	return r.status
@@ -127,7 +110,7 @@ func (r *Response) Payload() interface{} {
 }
 
 // Write writes the response to the writer
-func (r *Response) Write(w http.ResponseWriter) error {
+func (r *Response) Write(w http.ResponseWriter, req *http.Request) error {
 	if len(r.header) > 0 {
 		for key, vals := range r.header {
 			for _, val := range vals {
@@ -136,97 +119,63 @@ func (r *Response) Write(w http.ResponseWriter) error {
 		}
 	}
 
+	var out io.Writer
+	out = w
+
+	if strings.Contains(req.Header.Get("Accept-Encoding"), "gzip") {
+		wr := gzip.NewWriter(out)
+		defer wr.Flush()
+		out = wr
+		w.Header().Set("Content-Encoding", "gzip")
+	}
+
 	if r.payload == nil {
 		w.WriteHeader(r.status)
 		return nil
 	}
-	return r.writer(w, r.status, r.payload)
-}
 
-// WriteJSON writes json objects
-func WriteJSON(w http.ResponseWriter, status int, payload interface{}, headers ...http.Header) error {
-	if len(headers) > 0 {
-		for key, vals := range headers[0] {
-			for _, val := range vals {
-				w.Header().Add(key, val)
-			}
-		}
-	}
+	w.WriteHeader(r.status)
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-
-	if enc, ok := payload.(Encoder); ok {
-		return enc.Encode(w)
-	}
-
-	enc := json.NewEncoder(w)
-	enc.SetEscapeHTML(false)
-
-	return enc.Encode(payload)
-}
-
-// WriteXML writes an  object out as XML
-func WriteXML(w http.ResponseWriter, status int, payload interface{}, headers ...http.Header) error {
-	if len(headers) > 0 {
-		for key, vals := range headers[0] {
-			for _, val := range vals {
-				w.Header().Add(key, val)
-			}
-		}
-	}
-
-	w.Header().Set("Content-Type", "application/xml")
-
-	w.WriteHeader(status)
-
-	if enc, ok := payload.(Encoder); ok {
-		return enc.Encode(w)
-	}
-
-	enc := xml.NewEncoder(w)
-
-	return enc.Encode(payload)
-}
-
-// Write writes the raw payload out expeting it to be bytes
-func Write(w http.ResponseWriter, status int, payload interface{}, headers ...http.Header) error {
-	if len(headers) > 0 {
-		for key, vals := range headers[0] {
-			for _, val := range vals {
-				w.Header().Add(key, val)
-			}
-		}
-	}
-
-	w.WriteHeader(status)
-
-	if closer, ok := payload.(io.Closer); ok {
+	if closer, ok := r.payload.(io.Closer); ok {
 		defer closer.Close()
 	}
 
-	switch data := payload.(type) {
+	switch t := r.payload.(type) {
 	case []byte:
-		if _, err := w.Write(data); err != nil {
+		if _, err := out.Write(t); err != nil {
 			return err
 		}
+
 	case string:
-		if _, err := w.Write([]byte(data)); err != nil {
+		if _, err := out.Write([]byte(t)); err != nil {
 			return err
 		}
+
 	case Encoder:
-		if err := data.Encode(w); err != nil {
-			return err
-		}
+		return t.Encode(out)
+
 	case io.Reader:
 		if l := w.Header().Get("Content-Length"); l != "" {
-			if _, err := io.CopyN(w, data, cast.ToInt64(l)); err != nil {
+			if _, err := io.CopyN(out, t, cast.ToInt64(l)); err != nil {
 				return err
 			}
 		} else {
-			if _, err := io.Copy(w, data); err != nil {
+			if _, err := io.Copy(out, t); err != nil {
 				return err
 			}
+		}
+
+	default:
+		switch r.header.Get("Content-Type") {
+		case "application/xml":
+			enc := xml.NewEncoder(out)
+			return enc.Encode(r.payload)
+
+		case "application/json":
+			fallthrough
+		default:
+			enc := json.NewEncoder(out)
+			return enc.Encode(r.payload)
 		}
 	}
 
