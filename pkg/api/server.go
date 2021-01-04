@@ -422,7 +422,7 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 			}
 
 			if r.Body != nil && r.ContentLength > 0 {
-				t, _, err := mime.ParseMediaType(r.Header.Get("Content-type"))
+				t, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 				if err != nil {
 					s.log.Error(err.Error())
 					s.WriteError(w, http.StatusBadRequest, err)

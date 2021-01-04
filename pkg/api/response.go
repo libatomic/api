@@ -78,6 +78,22 @@ func (r *Response) WithHeader(key string, value string) *Response {
 	return r
 }
 
+// WithHeaders adds a map of header values
+func (r *Response) WithHeaders(h map[string]interface{}) *Response {
+	for k, v := range h {
+		switch t := v.(type) {
+		case []string:
+			for _, s := range t {
+				r.header.Add(k, s)
+			}
+		default:
+			r.header.Set(k, cast.ToString(v))
+		}
+	}
+
+	return r
+}
+
 // Redirect will set the proper redirect headers and http.StatusFound
 func Redirect(u *url.URL, args ...map[string]string) *Response {
 	r := NewResponse()
@@ -122,23 +138,30 @@ func (r *Response) Write(w http.ResponseWriter, req *http.Request) error {
 	var out io.Writer
 	out = w
 
-	if strings.Contains(req.Header.Get("Accept-Encoding"), "gzip") {
-		wr := gzip.NewWriter(out)
-		defer wr.Flush()
-		out = wr
-		w.Header().Set("Content-Encoding", "gzip")
-	}
-
 	if r.payload == nil {
 		w.WriteHeader(r.status)
 		return nil
 	}
 
-	w.WriteHeader(r.status)
-
 	if closer, ok := r.payload.(io.Closer); ok {
 		defer closer.Close()
 	}
+
+	if seeker, ok := r.payload.(io.Seeker); ok {
+		seeker.Seek(0, io.SeekStart)
+	}
+
+	ctlen := cast.ToInt64(w.Header().Get("Content-Length"))
+
+	if strings.Contains(req.Header.Get("Accept-Encoding"), "gzip") {
+		wr := gzip.NewWriter(out)
+		defer wr.Close()
+		out = wr
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Del("Content-Length")
+	}
+
+	w.WriteHeader(r.status)
 
 	switch t := r.payload.(type) {
 	case []byte:
@@ -155,8 +178,8 @@ func (r *Response) Write(w http.ResponseWriter, req *http.Request) error {
 		return t.Encode(out)
 
 	case io.Reader:
-		if l := w.Header().Get("Content-Length"); l != "" {
-			if _, err := io.CopyN(out, t, cast.ToInt64(l)); err != nil {
+		if ctlen > 0 {
+			if _, err := io.CopyN(out, t, ctlen); err != nil {
 				return err
 			}
 		} else {
