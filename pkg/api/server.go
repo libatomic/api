@@ -514,7 +514,7 @@ func (s *Server) AddRoute(path string, handler interface{}, opts ...RouteOption)
 			args = append(args, pv)
 		}
 
-		if _, ok := os.LookupEnv("HTTP_TRACE_ENABLE"); ok {
+		if trace {
 			if dump, err := httputil.DumpRequest(r, true); err == nil {
 				s.log.Debugf("%s -> %s", r.RequestURI, (dump))
 			}
