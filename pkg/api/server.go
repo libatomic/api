@@ -710,6 +710,16 @@ func Request(ctx context.Context) (*http.Request, http.ResponseWriter) {
 	return nil, nil
 }
 
+// RequesHost returns the host from the current request
+func RequesHost(ctx context.Context) string {
+	r, _ := Request(ctx)
+	if r.URL.Host != "" {
+		return r.URL.Host
+	}
+
+	return r.Host
+}
+
 // RequestBody returns the raw request body
 func RequestBody(ctx context.Context) []byte {
 	return ctx.Value(contextKeyBody).([]byte)
