@@ -713,11 +713,13 @@ func Request(ctx context.Context) (*http.Request, http.ResponseWriter) {
 // RequesHost returns the host from the current request
 func RequesHost(ctx context.Context) string {
 	r, _ := Request(ctx)
-	if r.URL.Host != "" {
-		return r.URL.Host
+	if r.URL.Hostname() != "" {
+		return r.URL.Hostname()
 	}
 
-	return r.Host
+	u, _ := url.Parse(r.Host)
+
+	return u.Hostname()
 }
 
 // RequestBody returns the raw request body
