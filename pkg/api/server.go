@@ -710,14 +710,16 @@ func Request(ctx context.Context) (*http.Request, http.ResponseWriter) {
 	return nil, nil
 }
 
-// RequesHost returns the host from the current request
+// RequestHost returns the host from the current request
 func RequestHost(ctx context.Context) string {
 	r, _ := Request(ctx)
 	if r.URL.Hostname() != "" {
 		return r.URL.Hostname()
 	}
 
-	u, _ := url.Parse(r.Host)
+	u := url.URL{
+		Host: r.Host,
+	}
 
 	return u.Hostname()
 }
