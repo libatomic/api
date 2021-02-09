@@ -13,6 +13,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+
+	"github.com/stoewer/go-strcase"
 )
 
 type (
@@ -20,8 +22,19 @@ type (
 	RedirectError struct {
 		URL            *url.URL
 		Status         int
-		Err            string
 		ErrDescription string
+	}
+)
+
+var (
+	// statusErrorMap maps http status to an error code string
+	statusErrorMap = map[int]string{
+		http.StatusBadRequest:          "bad_request",
+		http.StatusUnauthorized:        "access_denied",
+		http.StatusForbidden:           "forbidden",
+		http.StatusNotFound:            "not_found",
+		http.StatusConflict:            "conflict",
+		http.StatusInternalServerError: "server_error",
 	}
 )
 
@@ -53,20 +66,24 @@ func Errorf(f string, args ...interface{}) *Response {
 	return NewResponse(p).WithStatus(http.StatusInternalServerError)
 }
 
-// ErrorRedirect does a redirect if there is a url otherwise returns the error directly
-func ErrorRedirect(r RedirectError) *Response {
-	if r.Status == 0 {
-		r.Status = http.StatusInternalServerError
+// ErrorRedirect does a redirect if there u is valid
+func ErrorRedirect(u *url.URL, status int, f string, args ...interface{}) *Response {
+	if status == 0 {
+		status = http.StatusInternalServerError
 	}
 
-	if r.URL != nil {
-		return Redirect(r.URL, map[string]string{
-			"error":             r.Err,
-			"error_description": r.ErrDescription,
+	msg := fmt.Sprintf(f, args...)
+
+	if u != nil {
+		errCode := strcase.SnakeCase(http.StatusText(status))
+
+		return Redirect(u, map[string]string{
+			"error":             errCode,
+			"error_description": msg,
 		})
 	}
 
-	return StatusErrorf(r.Status, fmt.Sprintf("%s: %s", r.Err, r.ErrDescription))
+	return StatusErrorf(status, msg)
 }
 
 // StatusError sets the status and error message in one go
