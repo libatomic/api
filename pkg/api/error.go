@@ -12,11 +12,16 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 )
 
 type (
-	redirectError struct {
-		*Response
+	// RedirectError is used to redirect it the url is valid
+	RedirectError struct {
+		URL            *url.URL
+		Status         int
+		Err            string
+		ErrDescription string
 	}
 )
 
@@ -48,6 +53,22 @@ func Errorf(f string, args ...interface{}) *Response {
 	return NewResponse(p).WithStatus(http.StatusInternalServerError)
 }
 
+// ErrorRedirect does a redirect if there is a url otherwise returns the error directly
+func ErrorRedirect(r RedirectError) *Response {
+	if r.Status == 0 {
+		r.Status = http.StatusInternalServerError
+	}
+
+	if r.URL != nil {
+		return Redirect(r.URL, map[string]string{
+			"error":             r.Err,
+			"error_description": r.ErrDescription,
+		})
+	}
+
+	return StatusErrorf(r.Status, fmt.Sprintf("%s: %s", r.Err, r.ErrDescription))
+}
+
 // StatusError sets the status and error message in one go
 func StatusError(status int, e error) *Response {
 	return Error(e).WithStatus(status)
@@ -56,13 +77,4 @@ func StatusError(status int, e error) *Response {
 // StatusErrorf sets the status and error message in one go
 func StatusErrorf(status int, f string, args ...interface{}) *Response {
 	return Errorf(f, args...).WithStatus(status)
-}
-
-// RedirectError returns a redirect error
-func RedirectError(r *Response) error {
-	return &redirectError{r}
-}
-
-func (e *redirectError) Error() string {
-	return ""
 }

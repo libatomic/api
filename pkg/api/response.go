@@ -98,6 +98,10 @@ func (r *Response) WithHeaders(h map[string]interface{}) *Response {
 func Redirect(u *url.URL, args ...map[string]string) *Response {
 	r := NewResponse()
 
+	if u == nil || u.Path == "" {
+		return r
+	}
+
 	q := u.Query()
 
 	for _, a := range args {
